@@ -1,11 +1,12 @@
-# Python
+# Python cache
 __pycache__/
 *.py[cod]
 *.so
+
+# Python package/build artifacts
 *.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+build/
+dist/
 
 # Virtual environments
 .venv/
@@ -16,49 +17,16 @@ env/
 .ipynb_checkpoints/
 
 # Logs
-logs/
-log/
 *.log
+logs/
 wandb/
 lightning_logs/
 
-# Model checkpoints / weights
-*.ckpt
-*.pt
-*.pth
-*.safetensors
-checkpoints/
-pretrained/
-weights/
-models/
+# OS/editor noise
+.DS_Store
+.idea/
 
-# Data
-data/
-datasets/
-*.tfrecord
-*.tar
-*.tar.gz
-*.zip
-*.npy
-*.npz
-*.h5
-*.hdf5
-
-# Outputs
-outputs/
-results/
-samples/
-generated/
+# Temporary/cache
+.cache/
 tmp/
 temp/
-
-# Cache
-.cache/
-.cache_*/
-.cache-*/
-__MACOSX/
-
-# OS / editor
-.DS_Store
-.vscode/
-.idea/
