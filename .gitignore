@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+logs/
+log/
+*.log
+wandb/
+lightning_logs/
+
+# Model checkpoints / weights
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+checkpoints/
+pretrained/
+weights/
+models/
+
+# Data
+data/
+datasets/
+*.tfrecord
+*.tar
+*.tar.gz
+*.zip
+*.npy
+*.npz
+*.h5
+*.hdf5
+
+# Outputs
+outputs/
+results/
+samples/
+generated/
+tmp/
+temp/
+
+# Cache
+.cache/
+.cache_*/
+.cache-*/
+__MACOSX/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
