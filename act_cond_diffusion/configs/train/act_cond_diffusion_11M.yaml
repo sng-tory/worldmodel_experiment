@@ -149,7 +149,7 @@ lightning:
     logger:
       target: pytorch_lightning.loggers.WandbLogger
       params:
-        save_dir: /workspace/wandb/
+        save_dir: /workspace/wandb/act_cond_diffusion/
         offline: False
         project: cond_diffusion
         log_model: all

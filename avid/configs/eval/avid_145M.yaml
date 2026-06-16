@@ -26,7 +26,7 @@ ddim_kwargs:
 logger:
   target: pytorch_lightning.loggers.WandbLogger
   params:
-    save_dir: /workspace/wandb/
+    save_dir: /workspace/wandb/avid/
     offline: False
     project: avid-eval
 
