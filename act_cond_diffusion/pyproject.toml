@@ -4,10 +4,15 @@ version = "0.1.0"
 description = ""
 authors = []
 
+[[tool.poetry.source]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+priority = "explicit"
 
 [tool.poetry.dependencies]
 python = "~3.10"
-torch = "2.7.1"
+torch = { version = "==2.7.1+cu128", source = "pytorch-cu128" }
+torchvision = { version = "==0.22.1+cu128", source = "pytorch-cu128" }
 pytorch-lightning = "1.9.3"
 wandb = "^0.16.2"
 decord = "0.6.0"
@@ -19,12 +24,11 @@ opencv-python = "*"
 pandas = "2.0.0"
 pillow = "9.5.0"
 PyYAML = "6.0"
-torchvision = "0.22.1"
 tqdm = "4.65.0"
 transformers = "4.25.1"
 moviepy = "*"
 av = "*"
-xformers = "*"
+xformers = { version = "==0.0.31", source = "pytorch-cu128" }
 gradio = "*"
 timm = "*"
 scikit-learn = "*"
@@ -37,6 +41,7 @@ gcsfs = "^2024.6.0"
 fairscale = "^0.4.13"
 pudb = "^2024.1.1"
 pytorch-fid = "^0.3.0"
+setuptools = "<81"
 
 
 [tool.poetry.group.dev.dependencies]
