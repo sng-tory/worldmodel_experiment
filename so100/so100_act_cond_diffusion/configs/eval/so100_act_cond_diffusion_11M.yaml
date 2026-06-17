@@ -1,0 +1,45 @@
+name: so100_act_cond_diffusion_11M
+group: so100_act_cond_diffusion_11M
+
+num_batches: 64
+
+model_config_file: configs/train/so100_act_cond_diffusion_11M.yaml
+act_cond_unet_checkpoint: /workspace/so100_act_cond_model/model.ckpt
+
+ddim_kwargs:
+  ddim_steps: 50
+  unconditional_guidance_scale: 1.0
+  timestep_spacing: uniform_trailing
+  guidance_rescale: 0.7
+  ddim_eta: 1.0
+  verbose: True
+
+logger:
+  target: pytorch_lightning.loggers.WandbLogger
+  params:
+    save_dir: /workspace/wandb/so100_act_cond_diffusion/
+    offline: False
+    project: so100-cond-eval
+
+video_logger_callback:
+  target: lvdm.utils.callbacks.ImageLogger
+  params:
+    batch_frequency: 1
+    reset_metrics_per_batch: False
+    max_wandb_images: 4
+
+data:
+  target: ldwma.lightning.data_modules.lerobot_so100.SO100DataModule
+  params:
+    root: /workspace/community_dataset_v1
+    dataset_paths:
+      - 00ri/so100_battery
+    batch_size: 16
+    target_height: 320
+    target_width: 512
+    pad: True
+    camera_key: auto
+    traj_len: 16
+    val_fraction: 0.05
+    downsample: 1
+    use_language: False
