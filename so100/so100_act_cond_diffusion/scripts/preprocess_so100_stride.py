@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 import av
-import imageio.v2 as imageio
+import imageio
 import numpy as np
 import pandas as pd
 from huggingface_hub import list_repo_files
