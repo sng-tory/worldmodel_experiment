@@ -5,13 +5,10 @@ logdir: /workspace/
 data:
   target: ldwma.lightning.data_modules.lerobot_so100.SO100DataModule
   params:
-    root: null
-    remote: True
-    repo_id: HuggingFaceVLA/community_dataset_v1
-    cache_dir: /tmp/so100_hf_cache
-    temporary_downloads: False
+    root: /workspace/so100_stride5
+    remote: False
     dataset_paths: auto
-    action_stats_path: /workspace/so100_action_statistics.json
+    action_stats_path: /workspace/so100_stride5/so100_action_statistics.json
     normalize_actions: True
     batch_size: 8
     target_height: 320
