@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import os
 
 import torch
 import wandb
@@ -22,12 +23,13 @@ def get_run_logger(config, run_kwargs=None):
 
     # convert config to dict
     config_dict = OmegaConf.to_container(config, resolve=True)
+    os.makedirs(config.logger.params.save_dir, exist_ok=True)
 
     return WandbLogger(
         name=run_name,
         group=config.group,
         project=config.logger.params.project,
-        #entity=config.logger.params.entity,
+        entity=config.logger.params.get("entity", None),
         offline=config.logger.params.offline,
         save_dir=config.logger.params.save_dir,
         config=config_dict,

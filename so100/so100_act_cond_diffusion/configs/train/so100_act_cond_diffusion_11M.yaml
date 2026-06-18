@@ -5,9 +5,14 @@ logdir: /workspace/
 data:
   target: ldwma.lightning.data_modules.lerobot_so100.SO100DataModule
   params:
-    root: /workspace/community_dataset_v1
-    dataset_paths:
-      - 00ri/so100_battery
+    root: null
+    remote: True
+    repo_id: HuggingFaceVLA/community_dataset_v1
+    cache_dir: /tmp/so100_hf_cache
+    temporary_downloads: False
+    dataset_paths: auto
+    action_stats_path: /workspace/so100_action_statistics.json
+    normalize_actions: True
     batch_size: 8
     target_height: 320
     target_width: 512
@@ -157,6 +162,7 @@ lightning:
         save_dir: /workspace/wandb/so100_act_cond_diffusion/
         offline: False
         project: so100_cond_diffusion
+        entity: sin12345jk66
         log_model: all
   callbacks:
     model_checkpoint:

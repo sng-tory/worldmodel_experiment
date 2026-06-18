@@ -91,6 +91,9 @@ def get_trainer(lightning_config, trainer_config, config, args, workdir, ckptdir
     ## setup trainer args: pl-logger and callbacks
     trainer_kwargs = dict()
     trainer_kwargs["num_sanity_val_steps"] = 0
+    logger_save_dir = trainer_config["logger"].get("params", {}).get("save_dir", None)
+    if logger_save_dir:
+        os.makedirs(logger_save_dir, exist_ok=True)
     trainer_kwargs["logger"] = instantiate_from_config(trainer_config["logger"])
 
     ## setup callbacks

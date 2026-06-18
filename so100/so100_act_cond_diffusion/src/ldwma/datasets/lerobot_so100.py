@@ -1,12 +1,18 @@
 import json
+import os
 import random
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator, Sequence
 
 import av
 import numpy as np
 import pandas as pd
+import requests
 import torch
 import torch.nn.functional as F
+from huggingface_hub import HfFolder, hf_hub_download, hf_hub_url, list_repo_files
 from torch.utils.data import Dataset
 
 
@@ -31,6 +37,49 @@ def _format_lerobot_path(template: str, episode_index: int, chunks_size: int, vi
     )
 
 
+def _get_hf_token(token: str | None = None) -> str | None:
+    return token or HfFolder.get_token()
+
+
+@contextmanager
+def _materialize_hf_file(
+    repo_id: str,
+    filename: str,
+    cache_dir: str | None = None,
+    token: str | None = None,
+    temporary_downloads: bool = False,
+) -> Iterator[Path]:
+    if not temporary_downloads:
+        path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="dataset",
+            cache_dir=cache_dir,
+            token=_get_hf_token(token),
+        )
+        yield Path(path)
+        return
+
+    url = hf_hub_url(repo_id=repo_id, filename=filename, repo_type="dataset")
+    resolved_token = _get_hf_token(token)
+    headers = {"authorization": f"Bearer {resolved_token}"} if resolved_token else None
+    fd, temp_path = tempfile.mkstemp(suffix=Path(filename).suffix)
+    os.close(fd)
+    try:
+        with requests.get(url, headers=headers, stream=True, timeout=120) as response:
+            response.raise_for_status()
+            with open(temp_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+        yield Path(temp_path)
+    finally:
+        try:
+            os.remove(temp_path)
+        except FileNotFoundError:
+            pass
+
+
 def _select_video_key(features: dict, requested_key: str | None) -> str:
     video_keys = [key for key, value in features.items() if value.get("dtype") == "video"]
     if not video_keys:
@@ -43,6 +92,48 @@ def _select_video_key(features: dict, requested_key: str | None) -> str:
         if preferred in video_keys:
             return preferred
     return video_keys[0]
+
+
+def discover_lerobot_so100_datasets(root: str | Path) -> list[str]:
+    root = Path(root)
+    dataset_paths = []
+    for info_path in root.glob("*/*/meta/info.json"):
+        rel_dataset_path = info_path.parent.parent.relative_to(root)
+        try:
+            info = _read_json(info_path)
+            action_shape = info.get("features", {}).get("action", {}).get("shape")
+            _select_video_key(info.get("features", {}), "auto")
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if action_shape == [6]:
+            dataset_paths.append(rel_dataset_path.as_posix())
+    if not dataset_paths:
+        raise ValueError(f"No SO-100 LeRobot datasets with 6D actions found under {root}.")
+    return sorted(dataset_paths)
+
+
+def discover_remote_lerobot_so100_datasets(
+    repo_id: str,
+    cache_dir: str | None = None,
+    token: str | None = None,
+) -> list[str]:
+    files = list_repo_files(repo_id=repo_id, repo_type="dataset", token=_get_hf_token(token))
+    info_files = [filename for filename in files if filename.endswith("/meta/info.json")]
+    dataset_paths = []
+    for info_filename in info_files:
+        rel_dataset_path = info_filename[: -len("/meta/info.json")]
+        try:
+            with _materialize_hf_file(repo_id, info_filename, cache_dir=cache_dir, token=token) as info_path:
+                info = _read_json(info_path)
+            action_shape = info.get("features", {}).get("action", {}).get("shape")
+            _select_video_key(info.get("features", {}), "auto")
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if action_shape == [6]:
+            dataset_paths.append(rel_dataset_path)
+    if not dataset_paths:
+        raise ValueError(f"No SO-100 LeRobot datasets with 6D actions found in Hugging Face repo {repo_id}.")
+    return sorted(dataset_paths)
 
 
 def _decode_video_clip(video_path: Path, indices: list[int]) -> np.ndarray:
@@ -102,8 +193,8 @@ def preprocess_video(video: np.ndarray, target_height: int, target_width: int, p
 class LeRobotSO100Dataset(Dataset):
     def __init__(
         self,
-        root: str,
-        dataset_paths: list[str],
+        root: str | None,
+        dataset_paths: Sequence[str] | str,
         train: bool,
         traj_len: int,
         target_height: int,
@@ -116,8 +207,20 @@ class LeRobotSO100Dataset(Dataset):
         use_language: bool = False,
         fps: int | None = None,
         frame_stride: int | None = None,
+        action_mean: Sequence[float] | None = None,
+        action_std: Sequence[float] | None = None,
+        remote: bool = False,
+        repo_id: str | None = None,
+        cache_dir: str | None = None,
+        temporary_downloads: bool = False,
+        hf_token: str | None = None,
     ) -> None:
-        self.root = Path(root)
+        self.root = Path(root) if root is not None else None
+        self.remote = remote
+        self.repo_id = repo_id
+        self.cache_dir = cache_dir
+        self.temporary_downloads = temporary_downloads
+        self.hf_token = hf_token
         self.traj_len = traj_len
         self.target_height = target_height
         self.target_width = target_width
@@ -128,14 +231,25 @@ class LeRobotSO100Dataset(Dataset):
         self.override_fps = fps
         self.override_frame_stride = frame_stride
         self.rng = random.Random(seed)
+        self.action_mean = torch.tensor(action_mean, dtype=torch.float32) if action_mean is not None else None
+        self.action_std = torch.tensor(action_std, dtype=torch.float32) if action_std is not None else None
 
         if not 0.0 <= val_fraction < 1.0:
             raise ValueError("val_fraction must be in [0.0, 1.0).")
+        if self.remote and not self.repo_id:
+            raise ValueError("repo_id is required when remote=True.")
+        if not self.remote and self.root is None:
+            raise ValueError("root is required when remote=False.")
+        if dataset_paths == "auto":
+            if self.remote:
+                dataset_paths = discover_remote_lerobot_so100_datasets(self.repo_id, self.cache_dir, self.hf_token)
+            else:
+                dataset_paths = discover_lerobot_so100_datasets(self.root)
+        self.dataset_paths = list(dataset_paths)
 
         examples = []
-        for rel_dataset_path in dataset_paths:
-            dataset_root = self.root / rel_dataset_path
-            examples.extend(self._load_dataset_examples(dataset_root))
+        for rel_dataset_path in self.dataset_paths:
+            examples.extend(self._load_dataset_examples(rel_dataset_path))
 
         examples = [example for example in examples if example["length"] >= self.traj_len * self.downsample]
         self.rng.shuffle(examples)
@@ -147,9 +261,58 @@ class LeRobotSO100Dataset(Dataset):
             split = "train" if train else "val"
             raise ValueError(f"No {split} examples available. Check dataset_paths, traj_len, and val_fraction.")
 
-    def _load_dataset_examples(self, dataset_root: Path) -> list[dict]:
-        info = _read_json(dataset_root / "meta" / "info.json")
-        episodes = _read_jsonl(dataset_root / "meta" / "episodes.jsonl")
+    def set_action_stats(self, mean: Sequence[float], std: Sequence[float]) -> None:
+        self.action_mean = torch.tensor(mean, dtype=torch.float32)
+        self.action_std = torch.tensor(std, dtype=torch.float32)
+
+    def compute_action_statistics(self) -> dict:
+        count = 0
+        total = np.zeros(6, dtype=np.float64)
+        total_sq = np.zeros(6, dtype=np.float64)
+        for example in self.examples:
+            with self._materialize_file(example["data_ref"]) as data_path:
+                table = pd.read_parquet(data_path, columns=["action"])
+            actions = np.stack(table["action"].to_numpy()).astype(np.float64)
+            if actions.shape[-1] != 6:
+                raise ValueError(f"Expected SO-100 action dim 6, got {actions.shape[-1]} from {example['data_ref']}.")
+            count += actions.shape[0]
+            total += actions.sum(axis=0)
+            total_sq += np.square(actions).sum(axis=0)
+        if count == 0:
+            raise ValueError("Cannot compute SO-100 action statistics from an empty training split.")
+        mean = total / count
+        variance = np.maximum(total_sq / count - np.square(mean), 1e-12)
+        std = np.sqrt(variance)
+        return {
+            "count": int(count),
+            "mean": mean.astype(float).tolist(),
+            "std": std.astype(float).tolist(),
+        }
+
+    @contextmanager
+    def _materialize_file(self, file_ref: str | Path) -> Iterator[Path]:
+        if not self.remote:
+            yield Path(file_ref)
+            return
+        with _materialize_hf_file(
+            self.repo_id,
+            str(file_ref),
+            cache_dir=self.cache_dir,
+            token=self.hf_token,
+            temporary_downloads=self.temporary_downloads,
+        ) as path:
+            yield path
+
+    def _dataset_file_ref(self, rel_dataset_path: str, filename: str) -> str | Path:
+        if self.remote:
+            return f"{rel_dataset_path}/{filename}"
+        return self.root / rel_dataset_path / filename
+
+    def _load_dataset_examples(self, rel_dataset_path: str) -> list[dict]:
+        with self._materialize_file(self._dataset_file_ref(rel_dataset_path, "meta/info.json")) as info_path:
+            info = _read_json(info_path)
+        with self._materialize_file(self._dataset_file_ref(rel_dataset_path, "meta/episodes.jsonl")) as episodes_path:
+            episodes = _read_jsonl(episodes_path)
         video_key = _select_video_key(info["features"], self.camera_key)
         chunks_size = int(info.get("chunks_size", 1000))
         fps = int(self.override_fps or info.get("fps", 30))
@@ -160,13 +323,19 @@ class LeRobotSO100Dataset(Dataset):
         examples = []
         for episode in episodes:
             episode_index = int(episode["episode_index"])
-            data_path = dataset_root / _format_lerobot_path(data_template, episode_index, chunks_size)
-            video_path = dataset_root / _format_lerobot_path(video_template, episode_index, chunks_size, video_key)
+            data_ref = self._dataset_file_ref(
+                rel_dataset_path,
+                _format_lerobot_path(data_template, episode_index, chunks_size),
+            )
+            video_ref = self._dataset_file_ref(
+                rel_dataset_path,
+                _format_lerobot_path(video_template, episode_index, chunks_size, video_key),
+            )
             task = episode.get("tasks", [""])[0] if self.use_language else ""
             examples.append(
                 {
-                    "data_path": data_path,
-                    "video_path": video_path,
+                    "data_ref": data_ref,
+                    "video_ref": video_ref,
                     "length": int(episode["length"]),
                     "task": task,
                     "fps": fps,
@@ -184,15 +353,20 @@ class LeRobotSO100Dataset(Dataset):
         start_idx = self.rng.randint(0, max_start)
         frame_indices = [start_idx + i * self.downsample for i in range(self.traj_len)]
 
-        table = pd.read_parquet(example["data_path"], columns=["action"])
+        with self._materialize_file(example["data_ref"]) as data_path:
+            table = pd.read_parquet(data_path, columns=["action"])
         actions = np.stack(table["action"].iloc[frame_indices].to_numpy()).astype(np.float32)
         if actions.shape[-1] != 6:
-            raise ValueError(f"Expected SO-100 action dim 6, got {actions.shape[-1]} from {example['data_path']}.")
+            raise ValueError(f"Expected SO-100 action dim 6, got {actions.shape[-1]} from {example['data_ref']}.")
 
-        video = _decode_video_clip(example["video_path"], frame_indices)
+        with self._materialize_file(example["video_ref"]) as video_path:
+            video = _decode_video_clip(video_path, frame_indices)
+        act = torch.from_numpy(actions)
+        if self.action_mean is not None and self.action_std is not None:
+            act = (act - self.action_mean) / self.action_std
         return {
             "video": preprocess_video(video, self.target_height, self.target_width, self.pad),
-            "act": torch.from_numpy(actions),
+            "act": act,
             "caption": example["task"],
             "fps": torch.tensor(example["fps"], dtype=torch.long),
             "frame_stride": torch.tensor(example["frame_stride"], dtype=torch.long),

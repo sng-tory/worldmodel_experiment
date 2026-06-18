@@ -20,6 +20,7 @@ logger:
     save_dir: /workspace/wandb/so100_act_cond_diffusion/
     offline: False
     project: so100-cond-eval
+    entity: sin12345jk66
 
 video_logger_callback:
   target: lvdm.utils.callbacks.ImageLogger
@@ -31,9 +32,14 @@ video_logger_callback:
 data:
   target: ldwma.lightning.data_modules.lerobot_so100.SO100DataModule
   params:
-    root: /workspace/community_dataset_v1
-    dataset_paths:
-      - 00ri/so100_battery
+    root: null
+    remote: True
+    repo_id: HuggingFaceVLA/community_dataset_v1
+    cache_dir: /tmp/so100_hf_cache
+    temporary_downloads: False
+    dataset_paths: auto
+    action_stats_path: /workspace/so100_action_statistics.json
+    normalize_actions: True
     batch_size: 16
     target_height: 320
     target_width: 512
