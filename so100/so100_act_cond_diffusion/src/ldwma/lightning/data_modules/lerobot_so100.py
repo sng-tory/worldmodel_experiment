@@ -32,6 +32,7 @@ class SO100DataModule(LightningDataModule):
         cache_dir: str | None = None,
         temporary_downloads: bool = False,
         hf_token: str | None = None,
+        eval_all_episodes: bool = False,
         num_workers: int = 0,
         pin_memory: bool = True,
     ) -> None:
@@ -57,6 +58,7 @@ class SO100DataModule(LightningDataModule):
         self.cache_dir = cache_dir
         self.temporary_downloads = temporary_downloads
         self.hf_token = hf_token
+        self.eval_all_episodes = eval_all_episodes
         self.num_workers = num_workers
         self.pin_memory = pin_memory
         self.train_dataset = None
@@ -130,6 +132,7 @@ class SO100DataModule(LightningDataModule):
             cache_dir=self.cache_dir,
             temporary_downloads=self.temporary_downloads,
             hf_token=self.hf_token,
+            use_all_episodes=self.eval_all_episodes,
         )
 
     def train_dataloader(self) -> DataLoader:

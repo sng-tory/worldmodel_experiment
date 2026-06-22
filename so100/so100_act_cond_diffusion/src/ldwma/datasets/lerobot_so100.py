@@ -214,6 +214,7 @@ class LeRobotSO100Dataset(Dataset):
         cache_dir: str | None = None,
         temporary_downloads: bool = False,
         hf_token: str | None = None,
+        use_all_episodes: bool = False,
     ) -> None:
         self.root = Path(root) if root is not None else None
         self.remote = remote
@@ -256,9 +257,12 @@ class LeRobotSO100Dataset(Dataset):
         val_count = int(len(examples) * val_fraction)
         if val_fraction > 0 and val_count == 0 and len(examples) > 1:
             val_count = 1
-        self.examples = examples[val_count:] if train else examples[:val_count]
+        if use_all_episodes:
+            self.examples = examples
+        else:
+            self.examples = examples[val_count:] if train else examples[:val_count]
         if not self.examples:
-            split = "train" if train else "val"
+            split = "all" if use_all_episodes else ("train" if train else "val")
             raise ValueError(f"No {split} examples available. Check dataset_paths, traj_len, and val_fraction.")
 
     def set_action_stats(self, mean: Sequence[float], std: Sequence[float]) -> None:

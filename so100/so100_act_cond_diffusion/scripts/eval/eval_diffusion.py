@@ -34,7 +34,9 @@ if __name__ == "__main__":
     dataset = instantiate_from_config(eval_config.data)
     dataset.setup()
     dataloader = dataset.val_dataloader()
+    num_batches = min(eval_config.num_batches, len(dataloader))
+    print(f"Evaluating {num_batches}/{len(dataloader)} available batches")
 
     #### Evaluate >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
     sampler = DDIMSampler(diffusion_model)
-    evaluate_and_log(eval_config, diffusion_model, device, sampler, dataloader, eval_config.num_batches)
+    evaluate_and_log(eval_config, diffusion_model, device, sampler, dataloader, num_batches)
