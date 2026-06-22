@@ -6,6 +6,7 @@ import av
 import imageio
 import numpy as np
 import pandas as pd
+from huggingface_hub import list_repo_files
 from tqdm import tqdm
 
 from ldwma.datasets.lerobot_so100 import (
@@ -54,6 +55,8 @@ def update_output_info(info: dict, camera_key: str, fps: int, stride: int, episo
     output_info["downsample_stride"] = stride
     output_info["total_episodes"] = len(episodes)
     output_info["total_frames"] = int(sum(int(episode["length"]) for episode in episodes))
+    output_info["data_path"] = "data/chunk-{chunk_index:03d}/episode_{episode_index:06d}.parquet"
+    output_info["video_path"] = "videos/{video_key}/chunk-{chunk_index:03d}/episode_{episode_index:06d}.mp4"
 
     output_features = {}
     for key, feature in info["features"].items():
@@ -70,8 +73,11 @@ def update_output_info(info: dict, camera_key: str, fps: int, stride: int, episo
     return output_info
 
 
-def sample_parquet(source: Path, destination: Path, stride: int, fps: int) -> int:
+def sample_parquet(source: Path, destination: Path, episode_index: int, stride: int, fps: int) -> int:
     table = pd.read_parquet(source)
+    table = table.loc[table["episode_index"] == episode_index].reset_index(drop=True)
+    if table.empty:
+        raise ValueError(f"{source}: episode_index={episode_index} has no data rows.")
     indices = list(range(0, len(table), stride))
     sampled = table.iloc[indices].copy().reset_index(drop=True)
     if "frame_index" in sampled.columns:
@@ -83,7 +89,15 @@ def sample_parquet(source: Path, destination: Path, stride: int, fps: int) -> in
     return len(sampled)
 
 
-def sample_video(source: Path, destination: Path, stride: int, expected_frames: int, fps: int) -> None:
+def sample_video(
+    source: Path,
+    destination: Path,
+    stride: int,
+    expected_frames: int,
+    fps: int,
+    from_timestamp: float,
+    to_timestamp: float,
+) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     written = 0
     with av.open(str(source)) as container, imageio.get_writer(
@@ -93,13 +107,40 @@ def sample_video(source: Path, destination: Path, stride: int, expected_frames: 
         macro_block_size=1,
     ) as writer:
         stream = container.streams.video[0]
-        for frame_index, frame in enumerate(container.decode(stream)):
-            if frame_index % stride != 0:
+        container.seek(int(from_timestamp / float(stream.time_base)), stream=stream, backward=True)
+        episode_frame_index = 0
+        for frame in container.decode(stream):
+            frame_time = float(frame.time) if frame.time is not None else None
+            if frame_time is not None and frame_time + 1e-6 < from_timestamp:
+                continue
+            if frame_time is not None and frame_time + 1e-6 >= to_timestamp:
+                break
+            if episode_frame_index % stride != 0:
+                episode_frame_index += 1
                 continue
             writer.append_data(frame.to_ndarray(format="rgb24"))
             written += 1
+            episode_frame_index += 1
+            if written == expected_frames:
+                break
     if written != expected_frames:
         raise IndexError(f"{source}: video produced {written} frames, parquet expected {expected_frames}.")
+
+
+def load_episode_metadata(repo_id: str, cache_dir: str, token: str | None) -> pd.DataFrame:
+    repo_files = list_repo_files(repo_id=repo_id, repo_type="dataset", token=token)
+    episode_files = sorted(
+        filename
+        for filename in repo_files
+        if filename.startswith("meta/episodes/") and filename.endswith(".parquet")
+    )
+    if not episode_files:
+        raise ValueError(f"{repo_id}: no LeRobot v3 meta/episodes parquet files found.")
+    tables = []
+    for filename in episode_files:
+        with _materialize_hf_file(repo_id, filename, cache_dir=cache_dir, token=token) as metadata_path:
+            tables.append(pd.read_parquet(metadata_path))
+    return pd.concat(tables, ignore_index=True).sort_values("episode_index").reset_index(drop=True)
 
 
 def process_repo(
@@ -116,37 +157,59 @@ def process_repo(
         info = _read_json(info_path)
     validate_info(repo_id, info, camera_key)
 
-    total_episodes = int(info.get("total_episodes", 0))
-    if total_episodes <= 0:
-        raise ValueError(f"{repo_id}: info.json has no valid total_episodes.")
+    episode_metadata = load_episode_metadata(repo_id, cache_dir, token)
+    total_episodes = len(episode_metadata)
     if max_episodes is not None:
         total_episodes = min(total_episodes, max_episodes)
 
     original_fps = int(info.get("fps", 30))
     fps = max(1, int(round(original_fps / stride)))
-    chunks_size = int(info.get("chunks_size", 1000))
     local_dataset_path = Path(*repo_id.split("/"))
     output_dataset_root = output_root / local_dataset_path
     output_episodes = []
 
-    iterator = tqdm(range(total_episodes), desc=repo_id)
-    for episode_index in iterator:
-        data_relative = _format_lerobot_path(info["data_path"], episode_index, chunks_size)
-        video_relative = _format_lerobot_path(info["video_path"], episode_index, chunks_size, camera_key)
-        output_data = output_dataset_root / data_relative
-        output_video = output_dataset_root / video_relative
+    iterator = tqdm(episode_metadata.iloc[:total_episodes].to_dict("records"), desc=repo_id)
+    for episode in iterator:
+        episode_index = int(episode["episode_index"])
+        source_data_relative = info["data_path"].format(
+            chunk_index=int(episode["data/chunk_index"]),
+            file_index=int(episode["data/file_index"]),
+        )
+        video_prefix = f"videos/{camera_key}"
+        source_video_relative = info["video_path"].format(
+            video_key=camera_key,
+            chunk_index=int(episode[f"{video_prefix}/chunk_index"]),
+            file_index=int(episode[f"{video_prefix}/file_index"]),
+        )
+        output_chunk = episode_index // int(info.get("chunks_size", 1000))
+        output_data = output_dataset_root / f"data/chunk-{output_chunk:03d}/episode_{episode_index:06d}.parquet"
+        output_video = (
+            output_dataset_root
+            / f"videos/{camera_key}/chunk-{output_chunk:03d}/episode_{episode_index:06d}.mp4"
+        )
 
         if overwrite or not output_data.exists():
-            with _materialize_hf_file(repo_id, data_relative, cache_dir=cache_dir, token=token) as source_data:
-                sampled_length = sample_parquet(source_data, output_data, stride, fps)
+            with _materialize_hf_file(repo_id, source_data_relative, cache_dir=cache_dir, token=token) as source_data:
+                sampled_length = sample_parquet(source_data, output_data, episode_index, stride, fps)
         else:
             sampled_length = len(pd.read_parquet(output_data, columns=["action"]))
 
         if overwrite or not output_video.exists():
-            with _materialize_hf_file(repo_id, video_relative, cache_dir=cache_dir, token=token) as source_video:
-                sample_video(source_video, output_video, stride, sampled_length, fps)
+            with _materialize_hf_file(repo_id, source_video_relative, cache_dir=cache_dir, token=token) as source_video:
+                sample_video(
+                    source_video,
+                    output_video,
+                    stride,
+                    sampled_length,
+                    fps,
+                    float(episode[f"{video_prefix}/from_timestamp"]),
+                    float(episode[f"{video_prefix}/to_timestamp"]),
+                )
 
-        output_episodes.append({"episode_index": episode_index, "length": sampled_length})
+        tasks = episode.get("tasks", [])
+        if isinstance(tasks, np.ndarray):
+            tasks = tasks.tolist()
+        output_episodes.append({"episode_index": episode_index, "length": sampled_length, "tasks": tasks})
 
     output_info = update_output_info(info, camera_key, fps, stride, output_episodes)
     write_json(output_dataset_root / "meta" / "info.json", output_info)
