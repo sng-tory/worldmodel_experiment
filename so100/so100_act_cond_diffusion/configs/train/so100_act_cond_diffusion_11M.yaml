@@ -10,7 +10,9 @@ data:
     dataset_paths: auto
     action_stats_path: /workspace/so100_stride5/so100_action_statistics.json
     normalize_actions: True
-    batch_size: 8
+    batch_size: 28
+    num_workers: 2
+    pin_memory: True
     target_height: 320
     target_width: 512
     pad: True
@@ -142,14 +144,15 @@ lightning:
   trainer:
     strategy: ddp
     accelerator: "gpu"
-    limit_train_batches: 1000
+    limit_train_batches: 1.0
     limit_val_batches: 2
     check_val_every_n_epoch: 2
     num_sanity_val_steps: 0
     num_nodes: 1
     benchmark: True
-    accumulate_grad_batches: 4
-    max_steps: 5000
+    accumulate_grad_batches: 2
+    max_steps: 100000
+    max_time: "00:48:00:00"
     log_every_n_steps: 10
     gradient_clip_algorithm: "norm"
     gradient_clip_val: 1.0
@@ -159,7 +162,7 @@ lightning:
         save_dir: /workspace/wandb/so100_act_cond_diffusion/
         offline: False
         project: so100_cond_diffusion
-        entity: sin12345jk66
+        entity: seung_cheol
         log_model: all
   callbacks:
     model_checkpoint:
@@ -174,7 +177,9 @@ lightning:
       target: lvdm.utils.callbacks.ImageLogger
       params:
         batch_frequency: 500
-        max_images: 1
+        max_images: 4
+        max_wandb_images: 4
+        save_fps: 3
         log_images_kwargs:
           ddim_steps: 50
           unconditional_guidance_scale: 1.0

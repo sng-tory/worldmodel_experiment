@@ -133,7 +133,7 @@ class ImageLogger(Callback):
         conditioning = revert_preprocess_images(torch.clamp(batch_logs["image_condition"], -1.0, 1.0))
 
         if not self.logger:
-            log_func = partial(pl_module.log_dict, logger=True, on_step=True, on_epoch=True, sync_dist=False)
+            log_func = partial(pl_module.log_dict, logger=True, on_step=True, on_epoch=True, sync_dist=True)
         else:
             log_func = partial(self.logger.log_metrics, step=batch_idx)
 

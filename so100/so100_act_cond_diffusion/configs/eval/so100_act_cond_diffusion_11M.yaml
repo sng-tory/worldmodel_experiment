@@ -20,7 +20,7 @@ logger:
     save_dir: /workspace/wandb/so100_act_cond_diffusion/
     offline: False
     project: so100-cond-eval
-    entity: sin12345jk66
+    entity: seungh_cheol
 
 video_logger_callback:
   target: lvdm.utils.callbacks.ImageLogger
