@@ -4,7 +4,7 @@ group: smolvla_so100_eval_11M
 num_batches: 64
 
 model_config_file: configs/train/so100_act_cond_diffusion_11M.yaml
-act_cond_unet_checkpoint: /workspace/so100_act_cond_model/model.ckpt
+act_cond_unet_checkpoint: /workspace/so100_act_cond_diffusion_11M/checkpoints/last.ckpt
 
 ddim_kwargs:
   ddim_steps: 50
@@ -20,7 +20,7 @@ logger:
     save_dir: /workspace/wandb/smolvla_so100_eval/
     offline: False
     project: so100-cond-eval
-    entity: seungh_cheol
+    entity: seung_cheol
 
 video_logger_callback:
   target: lvdm.utils.callbacks.ImageLogger
