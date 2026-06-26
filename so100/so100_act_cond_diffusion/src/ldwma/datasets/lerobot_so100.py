@@ -83,8 +83,6 @@ def _materialize_hf_file(
             pass
 
 
-def _is_observation_image_key(camera_key: str) -> bool:
-    return camera_key.startswith("observation.image") and not camera_key.startswith("observation.images.")
 
 
 def _is_excluded_auto_camera_key(camera_key: str) -> bool:
@@ -104,11 +102,9 @@ def _select_video_keys(features: dict, requested_key: str | None) -> list[str]:
             raise ValueError(f"Requested camera_key={missing_keys!r}, available video keys={video_keys}.")
         return requested_keys
 
-    selected_keys = [
-        key for key in video_keys if _is_observation_image_key(key) and not _is_excluded_auto_camera_key(key)
-    ]
+    selected_keys = [key for key in video_keys if not _is_excluded_auto_camera_key(key)]
     if not selected_keys:
-        raise ValueError(f"No observation.image* video keys available. video keys={video_keys}.")
+        raise ValueError(f"No non-wrist/gripper/arm video keys available. video keys={video_keys}.")
     return selected_keys
 
 

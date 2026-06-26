@@ -24,8 +24,6 @@ EXCLUDED_CAMERA_NAME_PARTS = ("wrist", "gripper", "arm")
 PROCESSING_SUMMARY_FILE = "PROCESSING_SUMMARY_backup_20250811_090157.json"
 
 
-def is_observation_image_key(camera_key: str) -> bool:
-    return camera_key.startswith("observation.image") and not camera_key.startswith("observation.images.")
 
 
 def has_excluded_camera_name(camera_key: str) -> bool:
@@ -95,8 +93,6 @@ def select_video_key_pairs(features: dict, camera_key: str, mapping_applied: dic
 
     pairs = []
     for source_key, output_key in mapping_applied.items():
-        if not is_observation_image_key(output_key):
-            continue
         if has_excluded_camera_name(source_key):
             continue
         if source_key in video_keys:
@@ -106,9 +102,9 @@ def select_video_key_pairs(features: dict, camera_key: str, mapping_applied: dic
     if pairs:
         return list(dict.fromkeys(pairs))
 
-    pairs = [(key, key) for key in video_keys if is_observation_image_key(key) and not has_excluded_camera_name(key)]
+    pairs = [(key, key) for key in video_keys if not has_excluded_camera_name(key)]
     if not pairs:
-        raise ValueError(f"No observation.image* video keys available. video keys={video_keys}.")
+        raise ValueError(f"No non-wrist/gripper/arm video keys available. video keys={video_keys}.")
     return pairs
 
 
