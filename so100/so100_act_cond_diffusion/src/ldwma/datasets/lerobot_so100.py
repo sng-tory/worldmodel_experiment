@@ -16,6 +16,9 @@ from huggingface_hub import HfFolder, hf_hub_download, hf_hub_url, list_repo_fil
 from torch.utils.data import Dataset
 
 
+EXCLUDED_AUTO_CAMERA_NAME_PARTS = ("wrist", "gripper", "arm")
+
+
 def _read_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
@@ -80,19 +83,37 @@ def _materialize_hf_file(
             pass
 
 
-def _select_video_key(features: dict, requested_key: str | None) -> str:
+def _is_observation_image_key(camera_key: str) -> bool:
+    return camera_key.startswith("observation.image") and not camera_key.startswith("observation.images.")
+
+
+def _is_excluded_auto_camera_key(camera_key: str) -> bool:
+    camera_name = camera_key[len("observation.") :] if camera_key.startswith("observation.") else camera_key
+    camera_name = camera_name.lower()
+    return any(part in camera_name for part in EXCLUDED_AUTO_CAMERA_NAME_PARTS)
+
+
+def _select_video_keys(features: dict, requested_key: str | None) -> list[str]:
     video_keys = [key for key, value in features.items() if value.get("dtype") == "video"]
     if not video_keys:
         raise ValueError("No video feature found in LeRobot metadata.")
     if requested_key and requested_key != "auto":
-        if requested_key not in video_keys:
-            raise ValueError(f"Requested camera_key={requested_key!r}, available video keys={video_keys}.")
-        return requested_key
-    for preferred in ("observation.image", "observation.images.image", "observation.images.cam_middle"):
-        if preferred in video_keys:
-            return preferred
-    return video_keys[0]
+        requested_keys = [key.strip() for key in requested_key.split(",") if key.strip()]
+        missing_keys = [key for key in requested_keys if key not in video_keys]
+        if missing_keys:
+            raise ValueError(f"Requested camera_key={missing_keys!r}, available video keys={video_keys}.")
+        return requested_keys
 
+    selected_keys = [
+        key for key in video_keys if _is_observation_image_key(key) and not _is_excluded_auto_camera_key(key)
+    ]
+    if not selected_keys:
+        raise ValueError(f"No observation.image* video keys available. video keys={video_keys}.")
+    return selected_keys
+
+
+def _select_video_key(features: dict, requested_key: str | None) -> str:
+    return _select_video_keys(features, requested_key)[0]
 
 def discover_lerobot_so100_datasets(root: str | Path) -> list[str]:
     root = Path(root)
@@ -126,10 +147,10 @@ def discover_remote_lerobot_so100_datasets(
             with _materialize_hf_file(repo_id, info_filename, cache_dir=cache_dir, token=token) as info_path:
                 info = _read_json(info_path)
             action_shape = info.get("features", {}).get("action", {}).get("shape")
-            _select_video_key(info.get("features", {}), "auto")
+            has_video = any(value.get("dtype") == "video" for value in info.get("features", {}).values())
         except (OSError, ValueError, json.JSONDecodeError):
             continue
-        if action_shape == [6]:
+        if action_shape == [6] and has_video:
             dataset_paths.append(rel_dataset_path)
     if not dataset_paths:
         raise ValueError(f"No SO-100 LeRobot datasets with 6D actions found in Hugging Face repo {repo_id}.")
@@ -273,7 +294,12 @@ class LeRobotSO100Dataset(Dataset):
         count = 0
         total = np.zeros(6, dtype=np.float64)
         total_sq = np.zeros(6, dtype=np.float64)
+        seen_data_refs = set()
         for example in self.examples:
+            data_ref_key = str(example["data_ref"])
+            if data_ref_key in seen_data_refs:
+                continue
+            seen_data_refs.add(data_ref_key)
             with self._materialize_file(example["data_ref"]) as data_path:
                 table = pd.read_parquet(data_path, columns=["action"])
             actions = np.stack(table["action"].to_numpy()).astype(np.float64)
@@ -317,7 +343,7 @@ class LeRobotSO100Dataset(Dataset):
             info = _read_json(info_path)
         with self._materialize_file(self._dataset_file_ref(rel_dataset_path, "meta/episodes.jsonl")) as episodes_path:
             episodes = _read_jsonl(episodes_path)
-        video_key = _select_video_key(info["features"], self.camera_key)
+        video_keys = _select_video_keys(info["features"], self.camera_key)
         chunks_size = int(info.get("chunks_size", 1000))
         fps = int(self.override_fps or info.get("fps", 30))
         frame_stride = int(self.override_frame_stride or fps)
@@ -331,21 +357,23 @@ class LeRobotSO100Dataset(Dataset):
                 rel_dataset_path,
                 _format_lerobot_path(data_template, episode_index, chunks_size),
             )
-            video_ref = self._dataset_file_ref(
-                rel_dataset_path,
-                _format_lerobot_path(video_template, episode_index, chunks_size, video_key),
-            )
             task = episode.get("tasks", [""])[0] if self.use_language else ""
-            examples.append(
-                {
-                    "data_ref": data_ref,
-                    "video_ref": video_ref,
-                    "length": int(episode["length"]),
-                    "task": task,
-                    "fps": fps,
-                    "frame_stride": frame_stride,
-                }
-            )
+            for video_key in video_keys:
+                video_ref = self._dataset_file_ref(
+                    rel_dataset_path,
+                    _format_lerobot_path(video_template, episode_index, chunks_size, video_key),
+                )
+                examples.append(
+                    {
+                        "data_ref": data_ref,
+                        "video_ref": video_ref,
+                        "video_key": video_key,
+                        "length": int(episode["length"]),
+                        "task": task,
+                        "fps": fps,
+                        "frame_stride": frame_stride,
+                    }
+                )
         return examples
 
     def __len__(self) -> int:

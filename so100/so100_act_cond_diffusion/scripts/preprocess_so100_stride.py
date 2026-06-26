@@ -16,10 +16,134 @@ from ldwma.datasets.lerobot_so100 import (
     _materialize_hf_file,
     _read_json,
     _read_jsonl,
-    _select_video_key,
+    _select_video_keys,
     discover_remote_lerobot_so100_datasets,
 )
 
+EXCLUDED_CAMERA_NAME_PARTS = ("wrist", "gripper", "arm")
+PROCESSING_SUMMARY_FILE = "PROCESSING_SUMMARY_backup_20250811_090157.json"
+
+
+def is_observation_image_key(camera_key: str) -> bool:
+    return camera_key.startswith("observation.image") and not camera_key.startswith("observation.images.")
+
+
+def has_excluded_camera_name(camera_key: str) -> bool:
+    return any(part in camera_key.lower() for part in EXCLUDED_CAMERA_NAME_PARTS)
+
+
+def collect_mapping_entries(node) -> list[dict]:
+    entries = []
+    if isinstance(node, dict):
+        mapping = node.get("mapping_applied")
+        if isinstance(mapping, dict):
+            entries.append(node)
+        for value in node.values():
+            entries.extend(collect_mapping_entries(value))
+    elif isinstance(node, list):
+        for value in node:
+            entries.extend(collect_mapping_entries(value))
+    return entries
+
+
+def entry_matches_dataset(entry: dict, dataset_path: str) -> bool:
+    dataset_parts = [part for part in dataset_path.replace("\\", "/").split("/") if part]
+    if not dataset_parts:
+        return False
+    leaf_name = dataset_parts[-1]
+    for key, value in entry.items():
+        if key == "mapping_applied" or not isinstance(value, str):
+            continue
+        normalized = value.replace("\\", "/")
+        if dataset_path in normalized or leaf_name == normalized or normalized.endswith(f"/{leaf_name}"):
+            return True
+    return False
+
+
+def mapping_for_dataset(summary: dict | None, dataset_path: str) -> dict[str, str]:
+    if summary is None:
+        return {}
+    entries = collect_mapping_entries(summary)
+    for entry in entries:
+        if entry_matches_dataset(entry, dataset_path):
+            return entry["mapping_applied"]
+    if len(entries) == 1:
+        return entries[0]["mapping_applied"]
+    return {}
+
+
+def load_processing_summary(
+    repo_id: str,
+    filename: str | None,
+    cache_dir: str | None,
+    token: str | None,
+) -> dict | None:
+    if not filename:
+        return None
+    try:
+        with _materialize_hf_file(repo_id, filename, cache_dir=cache_dir, token=token) as summary_path:
+            return _read_json(summary_path)
+    except Exception as error:
+        print(f"[SO100 preprocess] skipped processing summary {filename}: {error}", flush=True)
+        return None
+
+
+def select_video_key_pairs(features: dict, camera_key: str, mapping_applied: dict[str, str]) -> list[tuple[str, str]]:
+    video_keys = [key for key, value in features.items() if value.get("dtype") == "video"]
+    if camera_key != "auto":
+        return [(key, key) for key in _select_video_keys(features, camera_key)]
+
+    pairs = []
+    for source_key, output_key in mapping_applied.items():
+        if not is_observation_image_key(output_key):
+            continue
+        if has_excluded_camera_name(source_key):
+            continue
+        if source_key in video_keys:
+            pairs.append((source_key, output_key))
+        elif output_key in video_keys:
+            pairs.append((output_key, output_key))
+    if pairs:
+        return list(dict.fromkeys(pairs))
+
+    pairs = [(key, key) for key in video_keys if is_observation_image_key(key) and not has_excluded_camera_name(key)]
+    if not pairs:
+        raise ValueError(f"No observation.image* video keys available. video keys={video_keys}.")
+    return pairs
+
+
+def build_output_info(
+    info: dict,
+    video_key_pairs: list[tuple[str, str]],
+    fps: int,
+    original_fps: int,
+    stride: int,
+    episodes: list[dict],
+) -> dict:
+    output_info = dict(info)
+    output_info["fps"] = fps
+    output_info["original_fps"] = original_fps
+    output_info["downsample_stride"] = stride
+    output_info["total_episodes"] = len(episodes)
+    output_info["total_frames"] = int(sum(int(episode["length"]) for episode in episodes))
+    output_info["total_videos"] = len(episodes) * len(video_key_pairs)
+
+    output_features = {}
+    pair_by_output_key = {output_key: source_key for source_key, output_key in video_key_pairs}
+    for key, feature in info.get("features", {}).items():
+        if feature.get("dtype") == "video":
+            continue
+        output_features[key] = dict(feature)
+    for output_key, source_key in pair_by_output_key.items():
+        updated = dict(info["features"][source_key])
+        if "info" in updated:
+            updated["info"] = dict(updated["info"])
+            updated["info"]["video.fps"] = float(fps)
+        if "fps" in updated:
+            updated["fps"] = fps
+        output_features[output_key] = updated
+    output_info["features"] = output_features
+    return output_info
 
 def write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,7 +224,7 @@ def process_episode(
     output_dataset_root: Path,
     info: dict,
     episode: dict,
-    video_key: str,
+    video_key_pairs: list[tuple[str, str]],
     stride: int,
     fps: int,
     cache_dir: str | None,
@@ -115,9 +239,7 @@ def process_episode(
 
     chunks_size = int(info.get("chunks_size", 1000))
     data_rel = _format_lerobot_path(info["data_path"], episode_index, chunks_size)
-    video_rel = _format_lerobot_path(info["video_path"], episode_index, chunks_size, video_key)
     output_data_path = output_dataset_root / data_rel
-    output_video_path = output_dataset_root / video_rel
 
     if overwrite or not output_data_path.exists():
         with _materialize_hf_file(
@@ -128,14 +250,18 @@ def process_episode(
         ) as src_data_path:
             write_sampled_parquet(src_data_path, output_data_path, indices, fps)
 
-    if overwrite or not output_video_path.exists():
-        with _materialize_hf_file(
-            repo_id,
-            f"{dataset_path}/{video_rel}",
-            cache_dir=cache_dir,
-            token=token,
-        ) as src_video_path:
-            write_sampled_video(src_video_path, output_video_path, indices, fps)
+    for source_video_key, output_video_key in video_key_pairs:
+        source_video_rel = _format_lerobot_path(info["video_path"], episode_index, chunks_size, source_video_key)
+        output_video_rel = _format_lerobot_path(info["video_path"], episode_index, chunks_size, output_video_key)
+        output_video_path = output_dataset_root / output_video_rel
+        if overwrite or not output_video_path.exists():
+            with _materialize_hf_file(
+                repo_id,
+                f"{dataset_path}/{source_video_rel}",
+                cache_dir=cache_dir,
+                token=token,
+            ) as src_video_path:
+                write_sampled_video(src_video_path, output_video_path, indices, fps)
 
     new_episode = dict(episode)
     new_episode["length"] = len(indices)
@@ -155,6 +281,7 @@ def process_dataset(
     max_episodes: int | None,
     overwrite: bool,
     copy_metadata: bool,
+    processing_summary: dict | None,
 ) -> None:
     output_dataset_root = output_root / dataset_path
     with _materialize_hf_file(repo_id, f"{dataset_path}/meta/info.json", cache_dir=cache_dir, token=token) as info_path:
@@ -167,7 +294,8 @@ def process_dataset(
     ) as episodes_path:
         episodes = _read_jsonl(episodes_path)
 
-    video_key = _select_video_key(info["features"], camera_key)
+    mapping_applied = mapping_for_dataset(processing_summary, dataset_path)
+    video_key_pairs = select_video_key_pairs(info["features"], camera_key, mapping_applied)
     original_fps = int(info.get("fps", 30))
     fps = max(1, int(round(original_fps / stride)))
     episodes_to_process = episodes[:max_episodes] if max_episodes is not None else episodes
@@ -181,7 +309,7 @@ def process_dataset(
             output_dataset_root=output_dataset_root,
             info=info,
             episode=episode,
-            video_key=video_key,
+            video_key_pairs=video_key_pairs,
             stride=stride,
             fps=fps,
             cache_dir=cache_dir,
@@ -190,12 +318,7 @@ def process_dataset(
         )
         new_episodes.append(new_episode)
 
-    new_info = dict(info)
-    new_info["fps"] = fps
-    new_info["original_fps"] = original_fps
-    new_info["downsample_stride"] = stride
-    new_info["total_episodes"] = len(new_episodes)
-    new_info["total_frames"] = int(sum(int(episode["length"]) for episode in new_episodes))
+    new_info = build_output_info(info, video_key_pairs, fps, original_fps, stride, new_episodes)
 
     write_json(output_dataset_root / "meta" / "info.json", new_info)
     write_jsonl(output_dataset_root / "meta" / "episodes.jsonl", new_episodes)
@@ -216,12 +339,14 @@ def main() -> None:
     parser.add_argument("--hf-token", default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--copy-metadata", action="store_true")
+    parser.add_argument("--processing-summary-file", default=PROCESSING_SUMMARY_FILE)
     args = parser.parse_args()
 
     if args.stride <= 0:
         raise ValueError("--stride must be positive.")
 
     token = args.hf_token
+    processing_summary = load_processing_summary(args.repo_id, args.processing_summary_file, args.cache_dir, token)
     if args.dataset_path == ["auto"]:
         dataset_paths = discover_remote_lerobot_so100_datasets(args.repo_id, cache_dir=args.cache_dir, token=token)
     else:
@@ -246,6 +371,7 @@ def main() -> None:
             max_episodes=args.max_episodes,
             overwrite=args.overwrite,
             copy_metadata=args.copy_metadata,
+            processing_summary=processing_summary,
         )
 
     print("[SO100 preprocess] done", flush=True)
