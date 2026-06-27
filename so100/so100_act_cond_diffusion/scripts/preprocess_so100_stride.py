@@ -97,24 +97,19 @@ def mapping_for_dataset_from_summaries(summaries: list[tuple[str, dict]], datase
         if mapping:
             print(f"[SO100 preprocess] {dataset_path}: using mapping from {filename}", flush=True)
             return mapping
-    print(f"[SO100 preprocess] {dataset_path}: no processing-summary mapping; using observation.image* auto fallback", flush=True)
+    print(f"[SO100 preprocess] {dataset_path}: no processing-summary mapping; using original auto fallback", flush=True)
     return {}
 
 
-def _is_observation_image_key(camera_key: str) -> bool:
-    return camera_key.startswith("observation.image") and not camera_key.startswith("observation.images.")
 
-
-def _select_observation_image_auto_key(video_keys: list[str]) -> str:
-    candidates = [key for key in video_keys if _is_observation_image_key(key) and not has_excluded_camera_name(key)]
-    if not candidates:
-        raise ValueError(f"No observation.image* auto fallback video key available. video keys={video_keys}.")
-    for preferred in ("observation.image", "observation.image1", "observation.image2", "observation.image3"):
-        if preferred in candidates:
+def select_original_auto_video_key(features: dict) -> str:
+    video_keys = [key for key, value in features.items() if value.get("dtype") == "video"]
+    if not video_keys:
+        raise ValueError("No video feature found in LeRobot metadata.")
+    for preferred in ("observation.image", "observation.images.image", "observation.images.cam_middle"):
+        if preferred in video_keys:
             return preferred
-    return sorted(candidates)[0]
-
-
+    return video_keys[0]
 def select_video_key_pairs(features: dict, camera_key: str, mapping_applied: dict[str, str]) -> list[tuple[str, str]]:
     video_keys = [key for key, value in features.items() if value.get("dtype") == "video"]
     if camera_key != "auto":
@@ -131,7 +126,7 @@ def select_video_key_pairs(features: dict, camera_key: str, mapping_applied: dic
     if pairs:
         return list(dict.fromkeys(pairs))
 
-    fallback_key = _select_observation_image_auto_key(video_keys)
+    fallback_key = select_original_auto_video_key(features)
     return [(fallback_key, fallback_key)]
 
 
