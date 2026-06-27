@@ -44,8 +44,13 @@ def select_camera_key(info: dict, requested_camera_key: str) -> str:
 
 
 def validate_info(repo_id: str, info: dict, camera_key: str) -> None:
-    if info.get("robot_type") != "so100":
-        raise ValueError(f"{repo_id}: expected robot_type='so100', got {info.get('robot_type')!r}.")
+    robot_type = info.get("robot_type")
+    allowed_robot_types = {"so100", "so_follower", "so100_follower", "so101_follower"}
+
+    if robot_type not in allowed_robot_types:
+        raise ValueError(
+            f"{repo_id}: expected robot_type in {allowed_robot_types}, got {robot_type!r}."
+        )
     action_shape = info.get("features", {}).get("action", {}).get("shape")
     if action_shape != [6]:
         raise ValueError(f"{repo_id}: expected 6D actions, got shape={action_shape}.")
