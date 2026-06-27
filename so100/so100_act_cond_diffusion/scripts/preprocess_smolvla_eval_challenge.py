@@ -1,5 +1,4 @@
 import argparse
-import json
 import random
 from pathlib import Path
 
@@ -18,19 +17,6 @@ DEFAULT_REPOS = [
     "lerobot/svla_so100_stacking",
     "lerobot/svla_so100_pickplace",
 ]
-
-
-def write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-
-def write_jsonl(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def validate_info(repo_id: str, info: dict, camera_key: str) -> None:
@@ -131,6 +117,7 @@ def process_repo(
     samples_per_episode: int,
     max_episodes: int | None,
     seed: int,
+    sample_offset: int,
     overwrite: bool,
 ) -> dict:
     with _materialize_hf_file(repo_id, "meta/info.json", cache_dir=cache_dir, token=token) as info_path:
@@ -143,12 +130,9 @@ def process_repo(
 
     original_fps = int(info.get("fps", 30))
     fps = max(1, int(round(original_fps / stride)))
-    local_dataset_path = Path(*repo_id.split("/"))
-    challenge_root = output_root / "challenge" / local_dataset_path
-    answers_root = output_root / "answers" / local_dataset_path
+    challenge_root = output_root / "challenge"
+    answers_root = output_root / "answers"
     rng = random.Random(seed + sum(ord(ch) for ch in repo_id))
-    challenge_rows = []
-    answer_rows = []
 
     iterator = tqdm(episode_metadata.to_dict("records"), desc=repo_id)
     sample_counter = 0
@@ -176,19 +160,14 @@ def process_repo(
         max_start = len(sampled) - window_len
         starts = [rng.randint(0, max_start) for _ in range(samples_per_episode)]
         for start_idx in starts:
-            sample_id = f"{repo_id.replace('/', '__')}__episode_{episode_index:06d}__start_{start_idx:06d}"
+            sample_id = f"sample_{sample_offset + sample_counter:06d}"
             window_positions = list(range(start_idx, start_idx + window_len))
             original_frame_indices = [sampled[position] for position in window_positions]
             action_sequence = np.stack(table["action"].iloc[original_frame_indices].to_numpy()).astype(np.float32)
 
-            image_rel = Path("images") / f"{sample_id}.png"
-            actions_rel = Path("actions") / f"{sample_id}.npy"
-            challenge_meta_rel = Path("metadata") / f"{sample_id}.json"
-            answer_video_rel = Path("videos") / camera_key / f"{sample_id}.mp4"
-            image_path = challenge_root / image_rel
-            actions_path = challenge_root / actions_rel
-            challenge_meta_path = challenge_root / challenge_meta_rel
-            answer_video_path = answers_root / answer_video_rel
+            image_path = challenge_root / "images" / f"{sample_id}.png"
+            actions_path = challenge_root / "actions" / f"{sample_id}.npy"
+            answer_video_path = answers_root / "videos" / f"{sample_id}.mp4"
 
             if overwrite or not actions_path.exists():
                 actions_path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,44 +184,10 @@ def process_repo(
                         float(episode[f"{video_prefix}/from_timestamp"]),
                         float(episode[f"{video_prefix}/to_timestamp"]),
                     )
-
-            tasks = episode.get("tasks", [])
-            if isinstance(tasks, np.ndarray):
-                tasks = tasks.tolist()
-            challenge_row = {
-                "sample_id": sample_id,
-                "repo_id": repo_id,
-                "episode_index": episode_index,
-                "camera_key": camera_key,
-                "stride": stride,
-                "fps": fps,
-                "window_len": window_len,
-                "start_index": start_idx,
-                "original_frame_indices": original_frame_indices,
-                "tasks": tasks,
-                "start_image": (local_dataset_path / image_rel).as_posix(),
-                "actions": (local_dataset_path / actions_rel).as_posix(),
-                "action_sequence": action_sequence.astype(float).tolist(),
-            }
-            answer_row = {
-                "sample_id": sample_id,
-                "repo_id": repo_id,
-                "episode_index": episode_index,
-                "camera_key": camera_key,
-                "answer_video": (local_dataset_path / answer_video_rel).as_posix(),
-                "original_frame_indices": original_frame_indices,
-            }
-            write_json(challenge_meta_path, challenge_row)
-            challenge_rows.append(challenge_row)
-            answer_rows.append(answer_row)
             sample_counter += 1
 
-    write_jsonl(challenge_root / "challenge_index.jsonl", challenge_rows)
-    write_jsonl(answers_root / "answer_index.jsonl", answer_rows)
     return {
         "repo_id": repo_id,
-        "challenge_path": (Path("challenge") / local_dataset_path).as_posix(),
-        "answers_path": (Path("answers") / local_dataset_path).as_posix(),
         "camera_key": camera_key,
         "stride": stride,
         "fps": fps,
@@ -276,27 +221,27 @@ def main() -> None:
 
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
-    summaries = []
+    sample_offset = 0
     for repo_id in args.repo_id:
         print(f"[SmolVLA challenge preprocess] processing {repo_id}", flush=True)
-        summaries.append(
-            process_repo(
-                repo_id=repo_id,
-                output_root=output_root,
-                cache_dir=args.cache_dir,
-                token=args.hf_token,
-                stride=args.stride,
-                camera_key=args.camera_key,
-                window_len=args.window_len,
-                samples_per_episode=args.samples_per_episode,
-                max_episodes=args.max_episodes,
-                seed=args.seed,
-                overwrite=args.overwrite,
-            )
+        summary = process_repo(
+            repo_id=repo_id,
+            output_root=output_root,
+            cache_dir=args.cache_dir,
+            token=args.hf_token,
+            stride=args.stride,
+            camera_key=args.camera_key,
+            window_len=args.window_len,
+            samples_per_episode=args.samples_per_episode,
+            max_episodes=args.max_episodes,
+            seed=args.seed,
+            sample_offset=sample_offset,
+            overwrite=args.overwrite,
         )
+        sample_offset += int(summary["samples"])
+        print(summary, flush=True)
 
-    write_json(output_root / "challenge_summary.json", {"datasets": summaries})
-    print(json.dumps({"datasets": summaries}, indent=2), flush=True)
+    print(f"[SmolVLA challenge preprocess] done. samples={sample_offset}", flush=True)
 
 
 if __name__ == "__main__":
