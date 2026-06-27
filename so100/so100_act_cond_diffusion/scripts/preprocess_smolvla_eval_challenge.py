@@ -16,7 +16,31 @@ DEFAULT_REPOS = [
     "lerobot/svla_so100_sorting",
     "lerobot/svla_so100_stacking",
     "lerobot/svla_so100_pickplace",
+    "sng-tory/record-test_20260628_045734",
+    "sng-tory/record-test_20260628_043900",
+    "sng-tory/record-test_20260628_041733",
+    "sng-tory/record-test_20260628_040133",
+    "sng-tory/record-test_20260628_035731",
 ]
+
+def select_camera_key(info: dict, requested_camera_key: str) -> str:
+    video_keys = [key for key, value in info.get("features", {}).items() if value.get("dtype") == "video"]
+    if not video_keys:
+        raise ValueError("No video feature found in LeRobot metadata.")
+    if requested_camera_key != "auto":
+        if requested_camera_key not in video_keys:
+            raise ValueError(f"camera {requested_camera_key!r} unavailable. video keys={video_keys}.")
+        return requested_camera_key
+    for preferred in (
+        "observation.images.top",
+        "observation.images.front",
+        "observation.image",
+        "observation.images.image",
+        "observation.images.cam_middle",
+    ):
+        if preferred in video_keys:
+            return preferred
+    return video_keys[0]
 
 
 def validate_info(repo_id: str, info: dict, camera_key: str) -> None:
@@ -122,7 +146,9 @@ def process_repo(
 ) -> dict:
     with _materialize_hf_file(repo_id, "meta/info.json", cache_dir=cache_dir, token=token) as info_path:
         info = _read_json(info_path)
+    camera_key = select_camera_key(info, camera_key)
     validate_info(repo_id, info, camera_key)
+    print(f"[SmolVLA challenge preprocess] {repo_id}: camera_key={camera_key}", flush=True)
 
     episode_metadata = load_episode_metadata(repo_id, cache_dir, token)
     if max_episodes is not None:
@@ -203,7 +229,7 @@ def main() -> None:
     parser.add_argument("--output-root", default="/workspace/smolvla_eval_challenge_stride5")
     parser.add_argument("--cache-dir", default="/tmp/smolvla_eval_challenge_cache")
     parser.add_argument("--stride", type=int, default=5)
-    parser.add_argument("--camera-key", default="observation.images.top")
+    parser.add_argument("--camera-key", default="auto")
     parser.add_argument("--window-len", type=int, default=16)
     parser.add_argument("--samples-per-episode", type=int, default=1)
     parser.add_argument("--max-episodes", type=int, default=None)
