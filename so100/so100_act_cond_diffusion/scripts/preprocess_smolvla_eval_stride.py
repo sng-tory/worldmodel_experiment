@@ -228,9 +228,9 @@ def process_repo(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create local stride-sampled SmolVLA SO100 evaluation datasets.")
     parser.add_argument("--repo-id", nargs="+", default=DEFAULT_REPOS)
-    parser.add_argument("--output-root", default="/workspace/smolvla_eval_stride10")
+    parser.add_argument("--output-root", default="/workspace/smolvla_eval_stride5")
     parser.add_argument("--cache-dir", default="/tmp/smolvla_eval_preprocess_cache")
-    parser.add_argument("--stride", type=int, default=10)
+    parser.add_argument("--stride", type=int, default=5)
     parser.add_argument("--camera-key", default="observation.images.top")
     parser.add_argument("--max-episodes", type=int, default=None)
     parser.add_argument("--hf-token", default=None)

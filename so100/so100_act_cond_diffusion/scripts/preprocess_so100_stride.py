@@ -21,7 +21,10 @@ from ldwma.datasets.lerobot_so100 import (
 )
 
 EXCLUDED_CAMERA_NAME_PARTS = ("wrist", "gripper", "arm")
-PROCESSING_SUMMARY_FILE = "PROCESSING_SUMMARY_backup_20250811_090157.json"
+PROCESSING_SUMMARY_FILES = (
+    "PROCESSING_SUMMARY_backup_20250811_090157.json",
+    "PROCESSING_SUMMARY.json",
+)
 
 
 
@@ -70,20 +73,46 @@ def mapping_for_dataset(summary: dict | None, dataset_path: str) -> dict[str, st
     return {}
 
 
-def load_processing_summary(
+def load_processing_summaries(
     repo_id: str,
-    filename: str | None,
+    filenames: list[str] | tuple[str, ...],
     cache_dir: str | None,
     token: str | None,
-) -> dict | None:
-    if not filename:
-        return None
-    try:
-        with _materialize_hf_file(repo_id, filename, cache_dir=cache_dir, token=token) as summary_path:
-            return _read_json(summary_path)
-    except Exception as error:
-        print(f"[SO100 preprocess] skipped processing summary {filename}: {error}", flush=True)
-        return None
+) -> list[tuple[str, dict]]:
+    summaries = []
+    for filename in filenames:
+        if not filename:
+            continue
+        try:
+            with _materialize_hf_file(repo_id, filename, cache_dir=cache_dir, token=token) as summary_path:
+                summaries.append((filename, _read_json(summary_path)))
+        except Exception as error:
+            print(f"[SO100 preprocess] skipped processing summary {filename}: {error}", flush=True)
+    return summaries
+
+
+def mapping_for_dataset_from_summaries(summaries: list[tuple[str, dict]], dataset_path: str) -> dict[str, str]:
+    for filename, summary in summaries:
+        mapping = mapping_for_dataset(summary, dataset_path)
+        if mapping:
+            print(f"[SO100 preprocess] {dataset_path}: using mapping from {filename}", flush=True)
+            return mapping
+    print(f"[SO100 preprocess] {dataset_path}: no processing-summary mapping; using observation.image* auto fallback", flush=True)
+    return {}
+
+
+def _is_observation_image_key(camera_key: str) -> bool:
+    return camera_key.startswith("observation.image") and not camera_key.startswith("observation.images.")
+
+
+def _select_observation_image_auto_key(video_keys: list[str]) -> str:
+    candidates = [key for key in video_keys if _is_observation_image_key(key) and not has_excluded_camera_name(key)]
+    if not candidates:
+        raise ValueError(f"No observation.image* auto fallback video key available. video keys={video_keys}.")
+    for preferred in ("observation.image", "observation.image1", "observation.image2", "observation.image3"):
+        if preferred in candidates:
+            return preferred
+    return sorted(candidates)[0]
 
 
 def select_video_key_pairs(features: dict, camera_key: str, mapping_applied: dict[str, str]) -> list[tuple[str, str]]:
@@ -102,10 +131,8 @@ def select_video_key_pairs(features: dict, camera_key: str, mapping_applied: dic
     if pairs:
         return list(dict.fromkeys(pairs))
 
-    pairs = [(key, key) for key in video_keys if not has_excluded_camera_name(key)]
-    if not pairs:
-        raise ValueError(f"No non-wrist/gripper/arm video keys available. video keys={video_keys}.")
-    return pairs
+    fallback_key = _select_observation_image_auto_key(video_keys)
+    return [(fallback_key, fallback_key)]
 
 
 def build_output_info(
@@ -277,7 +304,7 @@ def process_dataset(
     max_episodes: int | None,
     overwrite: bool,
     copy_metadata: bool,
-    processing_summary: dict | None,
+    processing_summaries: list[tuple[str, dict]],
 ) -> None:
     output_dataset_root = output_root / dataset_path
     with _materialize_hf_file(repo_id, f"{dataset_path}/meta/info.json", cache_dir=cache_dir, token=token) as info_path:
@@ -290,7 +317,7 @@ def process_dataset(
     ) as episodes_path:
         episodes = _read_jsonl(episodes_path)
 
-    mapping_applied = mapping_for_dataset(processing_summary, dataset_path)
+    mapping_applied = mapping_for_dataset_from_summaries(processing_summaries, dataset_path)
     video_key_pairs = select_video_key_pairs(info["features"], camera_key, mapping_applied)
     original_fps = int(info.get("fps", 30))
     fps = max(1, int(round(original_fps / stride)))
@@ -335,14 +362,14 @@ def main() -> None:
     parser.add_argument("--hf-token", default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--copy-metadata", action="store_true")
-    parser.add_argument("--processing-summary-file", default=PROCESSING_SUMMARY_FILE)
+    parser.add_argument("--processing-summary-file", nargs="*", default=list(PROCESSING_SUMMARY_FILES))
     args = parser.parse_args()
 
     if args.stride <= 0:
         raise ValueError("--stride must be positive.")
 
     token = args.hf_token
-    processing_summary = load_processing_summary(args.repo_id, args.processing_summary_file, args.cache_dir, token)
+    processing_summaries = load_processing_summaries(args.repo_id, args.processing_summary_file, args.cache_dir, token)
     if args.dataset_path == ["auto"]:
         dataset_paths = discover_remote_lerobot_so100_datasets(args.repo_id, cache_dir=args.cache_dir, token=token)
     else:
@@ -367,7 +394,7 @@ def main() -> None:
             max_episodes=args.max_episodes,
             overwrite=args.overwrite,
             copy_metadata=args.copy_metadata,
-            processing_summary=processing_summary,
+            processing_summaries=processing_summaries,
         )
 
     print("[SO100 preprocess] done", flush=True)
