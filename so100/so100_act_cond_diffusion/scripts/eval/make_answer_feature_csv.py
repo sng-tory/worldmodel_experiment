@@ -24,7 +24,7 @@ def main() -> None:
     parser.add_argument("--no-dino", action="store_true")
     parser.add_argument("--no-fvd-pretrained", action="store_true")
     parser.add_argument("--dino-model", default="vit_small_patch14_dinov2.lvd142m")
-    parser.add_argument("--dino-image-size", type=int, default=224)
+    parser.add_argument("--dino-image-size", type=int, default=0)
     parser.add_argument("--no-dino-pretrained", action="store_true")
     parser.add_argument("--feature-precision", type=int, default=6)
     args = parser.parse_args()

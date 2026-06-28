@@ -223,6 +223,37 @@ def _resize_frame_batch(frames: torch.Tensor, size: tuple[int, int]) -> torch.Te
     return F.interpolate(frames, size=size, mode="bilinear", align_corners=False)
 
 
+def _resize_pad_frame_batch(frames: torch.Tensor, size: int, pad_value: float = 0.0) -> torch.Tensor:
+    frames = frames.float() / 255.0
+    _, _, height, width = frames.shape
+    scale = min(size / height, size / width)
+    resized_height = max(1, round(height * scale))
+    resized_width = max(1, round(width * scale))
+    frames = F.interpolate(frames, size=(resized_height, resized_width), mode="bilinear", align_corners=False)
+    pad_top = (size - resized_height) // 2
+    pad_bottom = size - resized_height - pad_top
+    pad_left = (size - resized_width) // 2
+    pad_right = size - resized_width - pad_left
+    return F.pad(frames, (pad_left, pad_right, pad_top, pad_bottom), value=pad_value)
+
+
+def resolve_dino_image_size(model: torch.nn.Module, requested_size: int) -> int:
+    expected_size = None
+    patch_embed = getattr(model, "patch_embed", None)
+    img_size = getattr(patch_embed, "img_size", None)
+    if isinstance(img_size, tuple) and img_size:
+        expected_size = int(img_size[0])
+    elif isinstance(img_size, int):
+        expected_size = int(img_size)
+
+    if requested_size <= 0:
+        return expected_size or 224
+    if expected_size is not None and requested_size != expected_size:
+        print(f"[feature csv] DINO input size changed from {requested_size} to model expected size {expected_size}.")
+        return expected_size
+    return requested_size
+
+
 def _normalize_image_model_output(output) -> torch.Tensor:
     if isinstance(output, dict):
         if "x_norm_clstoken" in output:
@@ -274,8 +305,9 @@ def extract_dino_features(
 ) -> torch.Tensor:
     batch, time, height, width, channels = videos.shape
     frames = videos.permute(0, 1, 4, 2, 3).reshape(batch * time, channels, height, width)
-    frames = _resize_frame_batch(frames, (image_size, image_size)).to(device)
-    frames = (frames - IMAGENET_MEAN.to(device)) / IMAGENET_STD.to(device)
+    imagenet_mean = IMAGENET_MEAN.to(device)
+    frames = _resize_pad_frame_batch(frames, image_size, pad_value=0.0).to(device)
+    frames = (frames - imagenet_mean) / IMAGENET_STD.to(device)
     outputs = []
     with torch.no_grad():
         for start in range(0, frames.shape[0], 32):
@@ -318,10 +350,12 @@ def write_feature_csv(
     fid_model = load_fid_model(device) if use_fid else None
     fvd_model = load_fvd_model(device, fvd_pretrained) if use_fvd else None
     dino_model = load_dino_model(device, dino_model_name, dino_pretrained) if use_dino else None
+    if dino_model is not None:
+        dino_image_size = resolve_dino_image_size(dino_model, dino_image_size)
     action_model = load_action_extractor(action_extractor_ckpt, device)
 
     fvd_backend = "r3d18_kinetics400_frechet_video_feature" if fvd_pretrained else "r3d18_untrained_frechet_video_feature"
-    dino_backend = f"{dino_model_name}:{'pretrained' if dino_pretrained else 'untrained'}"
+    dino_backend = f"{dino_model_name}:{'pretrained' if dino_pretrained else 'untrained'}:letterbox{dino_image_size}"
     action_backend = Path(action_extractor_ckpt).name if action_extractor_ckpt else "none"
 
     with output_csv.open("w", newline="", encoding="utf-8") as f:
