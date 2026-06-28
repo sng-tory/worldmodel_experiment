@@ -167,9 +167,19 @@ def load_dino_model(device: torch.device, model_name: str, pretrained: bool) -> 
 def load_action_extractor(path: str | None, device: torch.device):
     if not path:
         return None
-    from lvdm.models.action_predictor import ActionPredictor
+    try:
+        from ldwma.models.action_extractor import SO100ActionExtractor
 
-    model = ActionPredictor.load_from_checkpoint(checkpoint_path=path)
+        model = SO100ActionExtractor.load_from_checkpoint(checkpoint_path=path)
+    except Exception as first_error:
+        try:
+            from lvdm.models.action_predictor import ActionPredictor
+
+            model = ActionPredictor.load_from_checkpoint(checkpoint_path=path)
+        except Exception as second_error:
+            raise RuntimeError(
+                f"Could not load action extractor checkpoint as SO100ActionExtractor or ActionPredictor: {path}"
+            ) from second_error
     model.to(device)
     model.eval()
     return model
