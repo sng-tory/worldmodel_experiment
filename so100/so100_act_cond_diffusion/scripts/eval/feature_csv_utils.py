@@ -133,9 +133,9 @@ def build_inference_batch(
         video_np = np.zeros((action.shape[0], *image.shape), dtype=np.uint8)
         video_np[0] = image
         videos.append(preprocess_video(video_np, target_height, target_width, pad))
-        action_tensor = torch.from_numpy(action)
+        action_tensor = torch.from_numpy(action).to(device)
         if action_mean is not None and action_std is not None:
-            action_tensor = (action_tensor - action_mean) / action_std
+            action_tensor = (action_tensor - action_mean.to(device)) / action_std.to(device)
         actions.append(action_tensor)
 
     return {
