@@ -18,16 +18,7 @@ from video_utils.image import preprocess_images
 
 
 FID_DIMS = 2048
-CSV_FIELDNAMES = [
-    "sample_id",
-    "source",
-    "feature_type",
-    "unit",
-    "frame_index",
-    "feature_backend",
-    "feature_dim",
-    "feature_json",
-]
+CSV_FIELDNAMES = ["sample_id", "feature_backend", "feature_json"]
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 KINETICS_MEAN = torch.tensor([0.43216, 0.394666, 0.37645]).view(1, 3, 1, 1, 1)
@@ -184,12 +175,11 @@ def load_action_extractor(path: str | None, device: torch.device):
     return model
 
 
-def _round_feature(feature: np.ndarray | torch.Tensor | list[float], precision: int | None) -> list[float]:
+def _round_feature(feature: np.ndarray | torch.Tensor | list, precision: int | None):
     if isinstance(feature, torch.Tensor):
         array = feature.detach().cpu().float().numpy()
     else:
         array = np.asarray(feature, dtype=np.float32)
-    array = array.reshape(-1)
     if precision is not None and precision >= 0:
         array = np.round(array, precision)
     return array.tolist()
@@ -197,26 +187,15 @@ def _round_feature(feature: np.ndarray | torch.Tensor | list[float], precision: 
 
 def feature_row(
     sample_id: str,
-    source: str,
-    feature_type: str,
-    unit: str,
     backend: str,
-    feature: np.ndarray | torch.Tensor | list[float],
-    frame_index: int = -1,
+    feature: np.ndarray | torch.Tensor | list,
     precision: int | None = 6,
 ) -> dict:
-    rounded = _round_feature(feature, precision)
     return {
         "sample_id": sample_id,
-        "source": source,
-        "feature_type": feature_type,
-        "unit": unit,
-        "frame_index": frame_index,
         "feature_backend": backend,
-        "feature_dim": len(rounded),
-        "feature_json": json.dumps(rounded, separators=(",", ":")),
+        "feature_json": json.dumps(_round_feature(feature, precision), separators=(",", ":")),
     }
-
 
 def _resize_frame_batch(frames: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
     frames = frames.float() / 255.0
@@ -367,68 +346,22 @@ def write_feature_csv(
 
             if fid_model is not None:
                 fid_features = extract_fid_features(videos, fid_model, device)
-                for sample_id, sample_features in zip(batch_ids, fid_features):
-                    for frame_idx, feature in enumerate(sample_features):
-                        writer.writerow(
-                            feature_row(
-                                sample_id,
-                                source,
-                                "fid_frame",
-                                "frame",
-                                "inception_v3_2048",
-                                feature,
-                                frame_idx,
-                                precision,
-                            )
-                        )
+                for sample_id, feature in zip(batch_ids, fid_features):
+                    writer.writerow(feature_row(sample_id, "fid_inception_v3_2048_frames", feature, precision))
 
             if fvd_model is not None:
                 fvd_features = extract_fvd_features(videos, fvd_model, device)
                 for sample_id, feature in zip(batch_ids, fvd_features):
-                    writer.writerow(
-                        feature_row(
-                            sample_id,
-                            source,
-                            "fvd_video",
-                            "video",
-                            fvd_backend,
-                            feature,
-                            -1,
-                            precision,
-                        )
-                    )
+                    writer.writerow(feature_row(sample_id, fvd_backend, feature, precision))
 
             if dino_model is not None:
                 dino_features = extract_dino_features(videos, dino_model, device, dino_image_size)
-                for sample_id, sample_features in zip(batch_ids, dino_features):
-                    for frame_idx, feature in enumerate(sample_features):
-                        writer.writerow(
-                            feature_row(
-                                sample_id,
-                                source,
-                                "dino_frame",
-                                "frame",
-                                dino_backend,
-                                feature,
-                                frame_idx,
-                                precision,
-                            )
-                        )
+                for sample_id, feature in zip(batch_ids, dino_features):
+                    writer.writerow(feature_row(sample_id, dino_backend, feature, precision))
 
             action_features = extract_action_features(videos, action_model, device)
             if action_features is not None:
                 for sample_id, feature in zip(batch_ids, action_features):
-                    writer.writerow(
-                        feature_row(
-                            sample_id,
-                            source,
-                            "action_extractor",
-                            "video",
-                            action_backend,
-                            feature,
-                            -1,
-                            precision,
-                        )
-                    )
+                    writer.writerow(feature_row(sample_id, action_backend, feature, precision))
 
             print(f"[feature csv] {source}: wrote {start + len(batch_ids)}/{len(sample_ids)} samples")

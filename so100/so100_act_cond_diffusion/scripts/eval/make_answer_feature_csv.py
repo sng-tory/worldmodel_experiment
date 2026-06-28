@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--target-width", type=int, default=512)
     parser.add_argument("--pad", action="store_true", default=True)
     parser.add_argument("--temporal-length", type=int, default=16)
-    parser.add_argument("--no-fid", action="store_true")
+    parser.add_argument("--include-fid", action="store_true")
     parser.add_argument("--no-fvd", action="store_true")
     parser.add_argument("--no-dino", action="store_true")
     parser.add_argument("--no-fvd-pretrained", action="store_true")
@@ -48,7 +48,7 @@ def main() -> None:
         pad=args.pad,
         feature_batch_size=args.feature_batch_size,
         precision=args.feature_precision,
-        use_fid=not args.no_fid,
+        use_fid=args.include_fid,
         use_fvd=not args.no_fvd,
         use_dino=not args.no_dino,
         fvd_pretrained=not args.no_fvd_pretrained,
