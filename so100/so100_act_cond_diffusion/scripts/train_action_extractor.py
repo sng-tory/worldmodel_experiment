@@ -26,11 +26,23 @@ def main() -> None:
     data = instantiate_from_config(config.data)
     data.setup()
     model = instantiate_from_config(config.model)
-    print(f"[action extractor] trainable params: {count_parameters(model) / 1e6:.2f}M")
+    trainable_params = count_parameters(model)
+    print(f"[action extractor] trainable params: {trainable_params / 1e6:.2f}M")
 
     lightning = config.get("lightning", OmegaConf.create())
     trainer_cfg = OmegaConf.to_container(lightning.get("trainer", OmegaConf.create()), resolve=True)
     logger = instantiate_from_config(lightning.logger) if "logger" in lightning else True
+    if hasattr(logger, "log_hyperparams"):
+        hparams = OmegaConf.to_container(config, resolve=True)
+        hparams["trainable_params"] = trainable_params
+        logger.log_hyperparams(hparams)
+    watch_cfg = lightning.get("watch_model", OmegaConf.create())
+    if getattr(watch_cfg, "enabled", False) and hasattr(logger, "watch"):
+        logger.watch(
+            model,
+            log=getattr(watch_cfg, "log", "gradients"),
+            log_freq=int(getattr(watch_cfg, "log_freq", 200)),
+        )
     callbacks = []
     if "callbacks" in lightning:
         for callback_cfg in lightning.callbacks.values():

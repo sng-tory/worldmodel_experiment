@@ -49,10 +49,19 @@ lightning:
     gradient_clip_val: 1.0
     gradient_clip_algorithm: norm
   logger:
-    target: pytorch_lightning.loggers.CSVLogger
+    target: pytorch_lightning.loggers.WandbLogger
     params:
-      save_dir: /workspace/so100_action_extractor/logs
-      name: csv
+      save_dir: /workspace/wandb/so100_action_extractor/
+      offline: False
+      project: so100_action_extractor
+      entity: seung_cheol
+      name: so100_action_extractor
+      group: so100_action_extractor
+      log_model: False
+  watch_model:
+    enabled: True
+    log: gradients
+    log_freq: 200
   callbacks:
     model_checkpoint:
       target: pytorch_lightning.callbacks.ModelCheckpoint
