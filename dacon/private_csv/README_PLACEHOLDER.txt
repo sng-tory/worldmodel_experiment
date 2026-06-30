@@ -1,0 +1,2 @@
+﻿- answer_features.csv: 운영진이 보관하는 정답 feature CSV입니다.
+- public_ids.txt: public score에 사용할 sample_id 목록입니다.

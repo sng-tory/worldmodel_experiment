@@ -1,0 +1,4 @@
+# public score에 사용할 sample_id를 한 줄에 하나씩 적습니다.
+# 예시:
+# sample_000000
+# sample_000001
