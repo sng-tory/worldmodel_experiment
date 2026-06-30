@@ -11,8 +11,9 @@ from feature_csv_utils import list_challenge_sample_ids, list_video_sample_ids, 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export answer feature CSV from answer videos.")
     parser.add_argument("--answer-video-root", default="/workspace/smolvla_eval_challenge_stride5/answers/videos")
-    parser.add_argument("--challenge-root", default=None)
+    parser.add_argument("--challenge-root", default="/workspace/smolvla_eval_challenge_stride5/challenge")
     parser.add_argument("--output-csv", default="/workspace/smolvla_eval_challenge_stride5/answer_features.csv")
+    parser.add_argument("--action-stats-path", default="/workspace/so100_stride5/so100_action_statistics.json")
     parser.add_argument("--action-extractor-ckpt", default=None)
     parser.add_argument("--feature-batch-size", type=int, default=4)
     parser.add_argument("--target-height", type=int, default=320)
@@ -56,6 +57,8 @@ def main() -> None:
         dino_pretrained=not args.no_dino_pretrained,
         dino_image_size=args.dino_image_size,
         action_extractor_ckpt=args.action_extractor_ckpt,
+        challenge_root=Path(args.challenge_root) if args.challenge_root else None,
+        action_stats_path=args.action_stats_path,
     )
     print(f"[feature csv] saved to {args.output_csv}")
 

@@ -305,13 +305,40 @@ def extract_dino_features(
     return torch.cat(outputs, dim=0).reshape(batch, time, -1)
 
 
-def extract_action_features(videos: torch.Tensor, model, device: torch.device) -> torch.Tensor | None:
+def load_action_target_batch(
+    challenge_root: Path | None,
+    sample_ids: list[str],
+    action_mean: torch.Tensor | None,
+    action_std: torch.Tensor | None,
+    device: torch.device,
+) -> torch.Tensor | None:
+    if challenge_root is None:
+        return None
+    targets = []
+    for sample_id in sample_ids:
+        action = torch.from_numpy(np.load(challenge_root / "actions" / f"{sample_id}.npy").astype(np.float32))
+        if action_mean is not None and action_std is not None:
+            action = (action - action_mean) / action_std
+        targets.append(action)
+    return torch.stack(targets, dim=0).to(device)
+
+
+def extract_action_features(
+    videos: torch.Tensor,
+    model,
+    device: torch.device,
+    target_actions: torch.Tensor | None = None,
+) -> torch.Tensor | None:
     if model is None:
         return None
     frames = preprocess_images(videos.to(device))
     with torch.no_grad():
-        pred = model(frames).detach().cpu().float()
-    return pred.flatten(1)
+        pred = model(frames).float()
+        if target_actions is not None:
+            if pred.shape != target_actions.shape:
+                raise ValueError(f"Action prediction/target shape mismatch: {pred.shape} vs {target_actions.shape}")
+            return torch.mean(torch.abs(pred - target_actions), dim=(1, 2), keepdim=True).cpu()
+        return pred.detach().cpu().flatten(1)
 
 
 def write_feature_csv(
@@ -334,6 +361,8 @@ def write_feature_csv(
     dino_pretrained: bool,
     dino_image_size: int,
     action_extractor_ckpt: str | None,
+    challenge_root: Path | None = None,
+    action_stats_path: str | None = None,
 ) -> None:
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     fid_model = load_fid_model(device) if use_fid else None
@@ -342,10 +371,14 @@ def write_feature_csv(
     if dino_model is not None:
         dino_image_size = resolve_dino_image_size(dino_model, dino_image_size)
     action_model = load_action_extractor(action_extractor_ckpt, device)
+    action_mean, action_std = load_action_stats(action_stats_path) if challenge_root is not None else (None, None)
 
     fvd_backend = "r3d18_kinetics400_frechet_video_feature" if fvd_pretrained else "r3d18_untrained_frechet_video_feature"
     dino_backend = f"{dino_model_name}:{'pretrained' if dino_pretrained else 'untrained'}:letterbox{dino_image_size}"
-    action_backend = Path(action_extractor_ckpt).name if action_extractor_ckpt else "none"
+    if action_extractor_ckpt and challenge_root is not None:
+        action_backend = f"action_mae:{Path(action_extractor_ckpt).name}"
+    else:
+        action_backend = Path(action_extractor_ckpt).name if action_extractor_ckpt else "none"
 
     with output_csv.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
@@ -369,7 +402,8 @@ def write_feature_csv(
                 for sample_id, feature in zip(batch_ids, dino_features):
                     writer.writerow(feature_row(sample_id, dino_backend, feature, precision))
 
-            action_features = extract_action_features(videos, action_model, device)
+            action_targets = load_action_target_batch(challenge_root, batch_ids, action_mean, action_std, device)
+            action_features = extract_action_features(videos, action_model, device, action_targets)
             if action_features is not None:
                 for sample_id, feature in zip(batch_ids, action_features):
                     writer.writerow(feature_row(sample_id, action_backend, feature, precision))

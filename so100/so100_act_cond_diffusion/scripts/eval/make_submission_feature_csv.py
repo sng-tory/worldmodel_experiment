@@ -143,6 +143,8 @@ def main() -> None:
         dino_pretrained=not args.no_dino_pretrained,
         dino_image_size=args.dino_image_size,
         action_extractor_ckpt=args.action_extractor_ckpt,
+        challenge_root=Path(args.challenge_root),
+        action_stats_path=args.action_stats_path,
     )
     print(f"[feature csv] saved to {args.output_csv}")
 

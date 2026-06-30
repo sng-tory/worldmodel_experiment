@@ -256,7 +256,7 @@ def main() -> None:
     parser.add_argument("--submission-csv", required=True)
     parser.add_argument("--answer-csv", required=True)
     parser.add_argument("--challenge-root", default=None)
-    parser.add_argument("--action-stats-path", default="/workspace/so100_stride5/so100_action_statistics.json")
+    parser.add_argument("--action-stats-path", default=None)
     parser.add_argument("--details-csv", default=None)
     parser.add_argument("--summary-csv", default=None)
     parser.add_argument("--dino-backend", default=None)
@@ -321,19 +321,13 @@ def main() -> None:
 
         real_action_mae = math.nan
         generated_action_mae = math.nan
-        action_ratio = math.nan
-        action_norm = math.nan
         if action_backend is not None and action_backend in submission[sample_id] and action_backend in answer[sample_id]:
             target = None
             if challenge_root is not None:
                 target = load_target_action(challenge_root, sample_id, action_mean, action_std)
             real_action_mae = action_mae_from_feature(answer[sample_id][action_backend], target)
             generated_action_mae = action_mae_from_feature(submission[sample_id][action_backend], target)
-            action_ratio = generated_action_mae / (real_action_mae + EPS)
-            action_norm = action_component(action_ratio, args.action_component, args.action_ratio_cap)
 
-        components = {"dino": dino_norm, "fvd": fvd_norm, "action": action_norm}
-        score = weighted_score(components, weights, allow_missing=args.allow_missing_action)
         rows.append(
             {
                 "sample_id": sample_id,
@@ -344,11 +338,52 @@ def main() -> None:
                 "fvd_component": fvd_norm,
                 "real_action_mae": real_action_mae,
                 "generated_action_mae": generated_action_mae,
-                "action_error_ratio": action_ratio,
-                "action_component": action_norm,
-                "weighted_score": score,
+                "action_error_ratio": math.nan,
+                "action_component": math.nan,
+                "weighted_score": math.nan,
             }
         )
+
+    def summarize_split(split_rows: list[dict]) -> dict:
+        mean_real_action_mae = safe_mean(split_rows, "real_action_mae")
+        mean_generated_action_mae = safe_mean(split_rows, "generated_action_mae")
+        if math.isnan(mean_real_action_mae) or math.isnan(mean_generated_action_mae):
+            ratio = math.nan
+            action_norm = math.nan
+        else:
+            ratio = mean_generated_action_mae / (mean_real_action_mae + EPS)
+            action_norm = action_component(ratio, args.action_component, args.action_ratio_cap)
+        components = {
+            "dino": safe_mean(split_rows, "dino_component"),
+            "fvd": safe_mean(split_rows, "fvd_component"),
+            "action": action_norm,
+        }
+        score = weighted_score(components, weights, allow_missing=args.allow_missing_action)
+        return {
+            "score": score,
+            "mean_dino_distance": safe_mean(split_rows, "dino_distance"),
+            "mean_dino_component": components["dino"],
+            "mean_fvd_feature_distance": safe_mean(split_rows, "fvd_feature_distance"),
+            "mean_fvd_component": components["fvd"],
+            "mean_real_action_mae": mean_real_action_mae,
+            "mean_generated_action_mae": mean_generated_action_mae,
+            "action_error_ratio": ratio,
+            "action_component": action_norm,
+        }
+
+    public_rows = [row for row in rows if row["split"] == "public"]
+    private_rows = [row for row in rows if row["split"] == "private"]
+    all_summary = summarize_split(rows)
+    public_summary = summarize_split(public_rows) if public_rows else {"score": math.nan}
+    private_summary = summarize_split(private_rows) if private_rows else {"score": math.nan}
+
+    split_summaries = {"public": public_summary, "private": private_summary}
+    for row in rows:
+        split_summary = split_summaries[row["split"]]
+        row["action_error_ratio"] = split_summary.get("action_error_ratio", math.nan)
+        row["action_component"] = split_summary.get("action_component", math.nan)
+        components = {"dino": row["dino_component"], "fvd": row["fvd_component"], "action": row["action_component"]}
+        row["weighted_score"] = weighted_score(components, weights, allow_missing=args.allow_missing_action)
 
     if args.details_csv:
         write_csv(args.details_csv, rows)
@@ -356,24 +391,24 @@ def main() -> None:
     if answer_fvd_features and submission_fvd_features:
         fvd_frechet = frechet_distance(np.stack(answer_fvd_features, axis=0), np.stack(submission_fvd_features, axis=0))
 
-    public_rows = [row for row in rows if row["split"] == "public"]
-    private_rows = [row for row in rows if row["split"] == "private"]
     summary = {
         "num_samples": len(rows),
         "num_public_samples": len(public_rows),
         "num_private_samples": len(private_rows),
-        "final_score": safe_mean(rows, "weighted_score"),
-        "public_score": safe_mean(public_rows, "weighted_score"),
-        "private_score": safe_mean(private_rows, "weighted_score"),
-        "mean_dino_distance": safe_mean(rows, "dino_distance"),
-        "mean_dino_component": safe_mean(rows, "dino_component"),
-        "mean_fvd_feature_distance": safe_mean(rows, "fvd_feature_distance"),
-        "mean_fvd_component": safe_mean(rows, "fvd_component"),
+        "final_score": all_summary["score"],
+        "public_score": public_summary["score"],
+        "private_score": private_summary["score"],
+        "mean_dino_distance": all_summary["mean_dino_distance"],
+        "mean_dino_component": all_summary["mean_dino_component"],
+        "mean_fvd_feature_distance": all_summary["mean_fvd_feature_distance"],
+        "mean_fvd_component": all_summary["mean_fvd_component"],
         "global_fvd_frechet_feature_score": fvd_frechet,
-        "mean_real_action_mae": safe_mean(rows, "real_action_mae"),
-        "mean_generated_action_mae": safe_mean(rows, "generated_action_mae"),
-        "mean_action_error_ratio": safe_mean(rows, "action_error_ratio"),
-        "mean_action_component": safe_mean(rows, "action_component"),
+        "mean_real_action_mae": all_summary["mean_real_action_mae"],
+        "mean_generated_action_mae": all_summary["mean_generated_action_mae"],
+        "mean_action_error_ratio": all_summary["action_error_ratio"],
+        "mean_action_component": all_summary["action_component"],
+        "public_action_error_ratio": public_summary.get("action_error_ratio", math.nan),
+        "private_action_error_ratio": private_summary.get("action_error_ratio", math.nan),
         "weight_dino": args.weight_dino,
         "weight_fvd": args.weight_fvd,
         "weight_action": args.weight_action,
