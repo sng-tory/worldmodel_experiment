@@ -3,35 +3,32 @@
 이 폴더는 데이콘/운영진에게 전달할 채점용 최소 패키지입니다.
 운영진은 참가자 제출 CSV와 운영진이 전달받은 정답 CSV를 비교해서 public/private 점수만 산출합니다.
 
-실행은 `scoring_kit` 폴더 안에서 합니다.
-
-```bash
-cd scoring_kit
-poetry install
-```
-
-## 포함 내용
-
-- 최종 채점 코드: `scoring_kit/scripts/eval/score_feature_csv.py`
-- 정답 feature CSV 위치: `private_csv/answer_features.csv`
-- public/private split 설정: `private_csv/public_ids.txt`
-- 참가자 제출 CSV 위치 예시: `submissions/<team_name>/submission_features.csv`
-
-## 운영진이 넣어야 하는 파일
+## 폴더 구조
 
 ```text
-private_csv/answer_features.csv
-private_csv/public_ids.txt
-submissions/<team_name>/submission_features.csv
+dacon/
+  scoring_kit/
+    requirements.txt
+    scripts/eval/score_feature_csv.py
+
+  private_csv/
+    answer_features.csv
+    public_ids.txt
+
+  submissions/
+    team_name/submission_features.csv
+
+  outputs/
 ```
 
-`answer_features.csv`는 사전에 생성해서 데이콘에 전달합니다. 데이콘 패키지 안에는 정답 영상에서 CSV를 만드는 코드를 포함하지 않습니다.
+## 설치 및 실행
 
-## 최종 채점
+가상환경을 만든 뒤 `requirements.txt`만 설치하면 됩니다.
 
 ```bash
 cd scoring_kit
-poetry run python scripts/eval/score_feature_csv.py \
+pip install -r requirements.txt
+python scripts/eval/score_feature_csv.py \
   --submission-csv ../submissions/team_name/submission_features.csv
 ```
 
@@ -48,6 +45,16 @@ private_score=...
   --details-csv ../outputs/team_name_details.csv \
   --summary-csv ../outputs/team_name_summary.csv
 ```
+
+## 운영진이 넣어야 하는 파일
+
+```text
+private_csv/answer_features.csv
+private_csv/public_ids.txt
+submissions/<team_name>/submission_features.csv
+```
+
+`answer_features.csv`는 사전에 생성해서 데이콘에 전달합니다. 이 패키지에는 정답 영상에서 CSV를 만드는 코드를 포함하지 않습니다.
 
 ## public/private 설정 방식
 
