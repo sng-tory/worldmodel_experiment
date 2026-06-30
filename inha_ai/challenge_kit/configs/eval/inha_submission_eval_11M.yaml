@@ -1,4 +1,4 @@
-name: inha_submission_eval_11M
+﻿name: inha_submission_eval_11M
 group: inha_submission_eval_11M
 
 num_batches: 64
@@ -33,10 +33,10 @@ video_logger_callback:
 data:
   target: ldwma.lightning.data_modules.lerobot_so100.SO100DataModule
   params:
-    root: ../data/challenge_lerobot_unused
+    root: ../data/eval
     remote: False
     dataset_paths: auto
-    action_stats_path: ../data/so100_stride5/so100_action_statistics.json
+    action_stats_path: ../data/train/so100_action_statistics.json
     normalize_actions: True
     eval_all_episodes: True
     batch_size: 16

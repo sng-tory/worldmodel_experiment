@@ -1,14 +1,14 @@
-name: inha_action_diffusion_11M
+﻿name: inha_action_diffusion_11M
 group: inha_action_diffusion_11M
 logdir: ../outputs/diffusion
 
 data:
   target: ldwma.lightning.data_modules.lerobot_so100.SO100DataModule
   params:
-    root: ../data/so100_stride5
+    root: ../data/train
     remote: False
     dataset_paths: auto
-    action_stats_path: ../data/so100_stride5/so100_action_statistics.json
+    action_stats_path: ../data/train/so100_action_statistics.json
     normalize_actions: True
     batch_size: 28
     num_workers: 2

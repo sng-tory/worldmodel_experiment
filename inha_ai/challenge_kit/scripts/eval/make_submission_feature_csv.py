@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 from contextlib import nullcontext
@@ -89,10 +89,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate predictions from challenge data and export submission feature CSV.")
     parser.add_argument("--config", default="configs/eval/inha_submission_eval_11M.yaml")
     parser.add_argument("--checkpoint", default="../checkpoints/baseline_diffusion.ckpt")
-    parser.add_argument("--challenge-root", default="../data/challenge")
+    parser.add_argument("--challenge-root", default="../data/eval")
     parser.add_argument("--prediction-root", default="../outputs/predictions/videos")
     parser.add_argument("--output-csv", default="../outputs/submission_features.csv")
-    parser.add_argument("--action-stats-path", default="../data/so100_stride5/so100_action_statistics.json")
+    parser.add_argument("--action-stats-path", default="../data/train/so100_action_statistics.json")
     parser.add_argument("--action-extractor-ckpt", default="../checkpoints/action_extractor.ckpt")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--feature-batch-size", type=int, default=4)
