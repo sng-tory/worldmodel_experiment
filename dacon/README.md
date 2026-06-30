@@ -1,6 +1,8 @@
 ﻿# DACON Organizer Package
 
-이 폴더는 데이콘/운영진에게 전달할 비공개 채점용 파일만 모은 배포본입니다.
+이 폴더는 데이콘/운영진에게 전달할 채점용 최소 패키지입니다.
+운영진은 참가자 제출 CSV와 운영진이 전달받은 정답 CSV를 비교해서 public/private 점수만 산출합니다.
+
 실행은 `scoring_kit` 폴더 안에서 합니다.
 
 ```bash
@@ -10,26 +12,22 @@ poetry install
 
 ## 포함 내용
 
+- 최종 채점 코드: `scoring_kit/scripts/eval/score_feature_csv.py`
 - 정답 feature CSV 위치: `private_csv/answer_features.csv`
 - public/private split 설정: `private_csv/public_ids.txt`
-- 최종 채점 코드: `scoring_kit/scripts/eval/score_feature_csv.py`
-- 정답 CSV 재생성 코드: `scoring_kit/scripts/eval/make_answer_feature_csv.py`
-- feature extractor 공통 코드: `scoring_kit/scripts/eval/feature_csv_utils.py`
+- 참가자 제출 CSV 위치 예시: `submissions/<team_name>/submission_features.csv`
 
-## 정답 CSV 생성 또는 재생성
+## 운영진이 넣어야 하는 파일
 
-운영진이 정답 영상에서 feature CSV를 다시 만들 때만 사용합니다.
-
-```bash
-cd scoring_kit
-poetry run python scripts/eval/make_answer_feature_csv.py
+```text
+private_csv/answer_features.csv
+private_csv/public_ids.txt
+submissions/<team_name>/submission_features.csv
 ```
 
-이때 내부적으로 DINO/FVD feature와 action extractor 기반 `action_mae` scalar를 저장합니다.
+`answer_features.csv`는 사전에 생성해서 데이콘에 전달합니다. 데이콘 패키지 안에는 정답 영상에서 CSV를 만드는 코드를 포함하지 않습니다.
 
 ## 최종 채점
-
-참가자가 제출한 `submission_features.csv`를 `submissions/<team_name>/submission_features.csv`에 둔 뒤 실행합니다.
 
 ```bash
 cd scoring_kit
@@ -54,15 +52,17 @@ private_score=...
 ## public/private 설정 방식
 
 `private_csv/public_ids.txt`에 public score로 계산할 sample_id를 한 줄에 하나씩 적습니다.
+숫자만 적어도 자동으로 `sample_000001` 형식으로 변환됩니다.
 
 ```text
-sample_000000
-sample_000001
+0
+1
+2
+sample_000033
 ```
 
 - `public_ids.txt`에 있는 sample만 public score에 사용합니다.
 - 나머지 common sample은 private score에 사용합니다.
-- 숫자만 적어도 `sample_000001` 형식으로 자동 변환됩니다.
 
 ## 점수 산식 요약
 
@@ -81,4 +81,4 @@ Action_component = clamp((AER - 1) / 4, 0, 1)
 
 ## 제한/운영 안내
 
-참가자에게는 `private_csv`, `private_data`, `private_checkpoints`, `scoring_kit/scripts/eval/score_feature_csv.py`를 제공하지 않는 것을 권장합니다. 추론 방식, GPU 수, 외부 데이터 사용 가능 여부, 시간 제한은 대회 공지 문서에서 별도로 고지해야 합니다.
+추론 방식, GPU 수, 외부 데이터 사용 가능 여부, 시간 제한은 대회 공지 문서에서 별도로 고지해야 합니다.
