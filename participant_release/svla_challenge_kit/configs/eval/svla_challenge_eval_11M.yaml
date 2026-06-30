@@ -1,0 +1,52 @@
+name: svla_challenge_eval_11M
+group: svla_challenge_eval_11M
+
+num_batches: 64
+
+model_config_file: configs/train/svla_action_diffusion_11M.yaml
+act_cond_unet_checkpoint: ../checkpoints/baseline_diffusion.ckpt
+
+ddim_kwargs:
+  ddim_steps: 50
+  unconditional_guidance_scale: 1.0
+  timestep_spacing: uniform_trailing
+  guidance_rescale: 0.7
+  ddim_eta: 1.0
+  verbose: True
+
+logger:
+  target: pytorch_lightning.loggers.WandbLogger
+  params:
+    save_dir: ../outputs/wandb/svla_challenge_eval/
+    offline: False
+    project: so100-cond-eval
+    entity: seung_cheol
+
+video_logger_callback:
+  target: lvdm.utils.callbacks.ImageLogger
+  params:
+    batch_frequency: 1
+    reset_metrics_per_batch: False
+    max_wandb_images: 4
+    save_fps: 3
+
+data:
+  target: ldwma.lightning.data_modules.lerobot_so100.SO100DataModule
+  params:
+    root: ../data/challenge_lerobot_unused
+    remote: False
+    dataset_paths: auto
+    action_stats_path: ../data/so100_stride5/so100_action_statistics.json
+    normalize_actions: True
+    eval_all_episodes: True
+    batch_size: 16
+    num_workers: 0
+    pin_memory: True
+    target_height: 320
+    target_width: 512
+    pad: True
+    camera_key: observation.images.top
+    traj_len: 16
+    val_fraction: 0.05
+    downsample: 1
+    use_language: False

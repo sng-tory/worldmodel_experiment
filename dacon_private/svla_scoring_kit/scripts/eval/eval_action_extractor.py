@@ -135,12 +135,12 @@ def write_csv(path: str, row: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate SO-100 action extractor on challenge answer videos.")
-    parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--challenge-root", default="/workspace/smolvla_eval_challenge_stride5/challenge")
-    parser.add_argument("--answer-video-root", default="/workspace/smolvla_eval_challenge_stride5/answers/videos")
+    parser.add_argument("--checkpoint", default="../checkpoints/action_extractor.ckpt")
+    parser.add_argument("--challenge-root", default="../data/challenge")
+    parser.add_argument("--answer-video-root", default="../data/answers/videos")
     parser.add_argument("--generated-video-root", default=None)
-    parser.add_argument("--csv-path", default="/workspace/so100_action_extractor/eval_challenge.csv")
-    parser.add_argument("--action-stats-path", default="/workspace/so100_stride5/so100_action_statistics.json")
+    parser.add_argument("--csv-path", default="../outputs/action_extractor_eval.csv")
+    parser.add_argument("--action-stats-path", default="../stats/so100_action_statistics.json")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--target-height", type=int, default=320)
