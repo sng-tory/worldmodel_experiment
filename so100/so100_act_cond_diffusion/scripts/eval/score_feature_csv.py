@@ -423,7 +423,6 @@ def main() -> None:
         write_csv(args.summary_csv, [summary])
     print(f"public_score={summary['public_score']:.8f}")
     print(f"private_score={summary['private_score']:.8f}")
-    print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":
