@@ -10,102 +10,39 @@ import numpy as np
 
 
 EPS = 1e-9
-DINO_BACKEND = "DINO Component"
-VIDEO_BACKEND = "Video Feature"
-ACTION_BACKEND = "Action Component"
+DINO_COMPONENT = "DINO Component"
+VIDEO_COMPONENT = "Video Feature Component"
+ACTION_COMPONENT = "Action Component"
 
 
 def _as_array(value) -> np.ndarray:
     return np.asarray(value, dtype=np.float64)
 
 
-def _is_dino_backend(name: str) -> bool:
-    lowered = name.lower()
-    return "dino" in lowered
-
-
-def _is_video_backend(name: str) -> bool:
-    lowered = name.lower()
-    return "video feature" in lowered or "r3d" in lowered
-
-
-def _is_fid_backend(name: str) -> bool:
-    return "fid" in name.lower() or "inception" in name.lower()
-
-
-def canonical_backend(name: str) -> str:
-    lowered = name.lower()
-    if name in {DINO_BACKEND, VIDEO_BACKEND, ACTION_BACKEND}:
-        return name
-    if _is_dino_backend(name):
-        return DINO_BACKEND
-    if _is_video_backend(name):
-        return VIDEO_BACKEND
-    if "action" in lowered:
-        return ACTION_BACKEND
-    return name
-
-
 def load_feature_csv(path: str | Path) -> dict[str, dict[str, np.ndarray]]:
     """Load feature CSVs produced by make_submission/answer_feature_csv.py.
 
-    The current compact format has one row per sample/backend. This loader also
-    tolerates older frame-wise CSVs by stacking duplicate sample/backend rows.
+    The compact format has one row per sample/component. This loader tolerates
+    frame-wise duplicate sample/component rows by stacking them.
     """
     buckets: dict[str, dict[str, list[np.ndarray]]] = {}
     with Path(path).open("r", newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
-        required = {"sample_id", "feature_backend", "feature_json"}
+        required = {"sample_id", "feature_component", "feature_json"}
         if not required.issubset(reader.fieldnames or []):
             raise ValueError(f"{path} must contain columns {sorted(required)}; got {reader.fieldnames}.")
         for row in reader:
             sample_id = row["sample_id"]
-            backend = canonical_backend(row["feature_backend"])
+            component = row["feature_component"].strip()
             feature = _as_array(json.loads(row["feature_json"]))
-            buckets.setdefault(sample_id, {}).setdefault(backend, []).append(feature)
+            buckets.setdefault(sample_id, {}).setdefault(component, []).append(feature)
 
     features: dict[str, dict[str, np.ndarray]] = {}
-    for sample_id, backend_map in buckets.items():
+    for sample_id, component_map in buckets.items():
         features[sample_id] = {}
-        for backend, values in backend_map.items():
-            features[sample_id][backend] = values[0] if len(values) == 1 else np.stack(values, axis=0)
+        for component, values in component_map.items():
+            features[sample_id][component] = values[0] if len(values) == 1 else np.stack(values, axis=0)
     return features
-
-
-def infer_backend(
-    submission: dict[str, dict[str, np.ndarray]],
-    answer: dict[str, dict[str, np.ndarray]],
-    kind: str,
-    explicit: str | None,
-    required: bool,
-) -> str | None:
-    if explicit:
-        return canonical_backend(explicit)
-    common_samples = sorted(set(submission) & set(answer))
-    common_backends = set()
-    for sample_id in common_samples:
-        common_backends.update(set(submission[sample_id]) & set(answer[sample_id]))
-
-    if kind == "dino":
-        candidates = sorted(backend for backend in common_backends if _is_dino_backend(backend))
-    elif kind == "video":
-        candidates = sorted(backend for backend in common_backends if _is_video_backend(backend))
-    elif kind == "action":
-        candidates = sorted(
-            backend
-            for backend in common_backends
-            if not _is_dino_backend(backend) and not _is_video_backend(backend) and not _is_fid_backend(backend)
-        )
-    else:
-        raise ValueError(f"Unknown backend kind: {kind}")
-
-    if not candidates:
-        if required:
-            raise ValueError(f"Could not infer {kind} backend from common CSV rows. Pass --{kind}-backend explicitly.")
-        return None
-    if len(candidates) > 1:
-        raise ValueError(f"Multiple {kind} backends found: {candidates}. Pass --{kind}-backend explicitly.")
-    return candidates[0]
 
 
 def cosine_distance(a: np.ndarray, b: np.ndarray, axis: int = -1) -> np.ndarray:
@@ -253,13 +190,10 @@ def main() -> None:
     parser.add_argument("--action-stats-path", default=None)
     parser.add_argument("--details-csv", default=None)
     parser.add_argument("--summary-csv", default=None)
-    parser.add_argument("--dino-backend", default=None)
-    parser.add_argument("--video-backend", default=None)
-    parser.add_argument("--action-backend", default=None)
     parser.add_argument("--distance", choices=["cosine", "rmse"], default="cosine")
-    parser.add_argument("--weight-dino", type=float, default=0.4)
+    parser.add_argument("--weight-dino", type=float, default=0.3)
     parser.add_argument("--weight-video", type=float, default=0.3)
-    parser.add_argument("--weight-action", type=float, default=0.3)
+    parser.add_argument("--weight-action", type=float, default=0.4)
     parser.add_argument("--action-component", choices=["ratio_minus_one", "ratio"], default="ratio_minus_one")
     parser.add_argument("--action-ratio-cap", type=float, default=5.0)
     parser.add_argument("--allow-missing-action", action="store_true")
@@ -279,15 +213,9 @@ def main() -> None:
         print(f"[score] warning: ignoring {len(unknown_public_ids)} public ids not found in common samples: {unknown_public_ids[:10]}")
     public_sample_ids &= sample_id_set
 
-    dino_backend = infer_backend(submission, answer, "dino", args.dino_backend, required=args.weight_dino > 0)
-    video_backend = infer_backend(submission, answer, "video", args.video_backend, required=args.weight_video > 0)
-    action_backend = infer_backend(
-        submission,
-        answer,
-        "action",
-        args.action_backend,
-        required=args.weight_action > 0 and not args.allow_missing_action,
-    )
+    dino_component_name = DINO_COMPONENT
+    video_component_name = VIDEO_COMPONENT
+    action_component_name = ACTION_COMPONENT
 
     action_mean, action_std = load_action_stats(args.action_stats_path) if args.challenge_root else (None, None)
     challenge_root = Path(args.challenge_root) if args.challenge_root else None
@@ -297,26 +225,30 @@ def main() -> None:
     for sample_id in sample_ids:
         dino_distance = math.nan
         dino_norm = math.nan
-        if dino_backend is not None and dino_backend in submission[sample_id] and dino_backend in answer[sample_id]:
-            dino_distance = feature_distance(submission[sample_id][dino_backend], answer[sample_id][dino_backend], args.distance)
+        if dino_component_name in submission[sample_id] and dino_component_name in answer[sample_id]:
+            dino_distance = feature_distance(
+                submission[sample_id][dino_component_name],
+                answer[sample_id][dino_component_name],
+                args.distance,
+            )
             dino_norm = normalize_distance(dino_distance, args.distance)
 
         video_distance = math.nan
         video_norm = math.nan
-        if video_backend is not None and video_backend in submission[sample_id] and video_backend in answer[sample_id]:
-            submission_video = submission[sample_id][video_backend].reshape(-1)
-            answer_video = answer[sample_id][video_backend].reshape(-1)
+        if video_component_name in submission[sample_id] and video_component_name in answer[sample_id]:
+            submission_video = submission[sample_id][video_component_name].reshape(-1)
+            answer_video = answer[sample_id][video_component_name].reshape(-1)
             video_distance = feature_distance(submission_video, answer_video, args.distance)
             video_norm = normalize_distance(video_distance, args.distance)
 
         real_action_mae = math.nan
         generated_action_mae = math.nan
-        if action_backend is not None and action_backend in submission[sample_id] and action_backend in answer[sample_id]:
+        if action_component_name in submission[sample_id] and action_component_name in answer[sample_id]:
             target = None
             if challenge_root is not None:
                 target = load_target_action(challenge_root, sample_id, action_mean, action_std)
-            real_action_mae = action_mae_from_feature(answer[sample_id][action_backend], target)
-            generated_action_mae = action_mae_from_feature(submission[sample_id][action_backend], target)
+            real_action_mae = action_mae_from_feature(answer[sample_id][action_component_name], target)
+            generated_action_mae = action_mae_from_feature(submission[sample_id][action_component_name], target)
 
         rows.append(
             {
@@ -325,7 +257,7 @@ def main() -> None:
                 "dino_distance": dino_distance,
                 "dino_component": dino_norm,
                 "video_feature_distance": video_distance,
-                "video_component": video_norm,
+                "video_feature_component": video_norm,
                 "real_action_mae": real_action_mae,
                 "generated_action_mae": generated_action_mae,
                 "action_error_ratio": math.nan,
@@ -345,7 +277,7 @@ def main() -> None:
             action_norm = action_component(ratio, args.action_component, args.action_ratio_cap)
         components = {
             "dino": safe_mean(split_rows, "dino_component"),
-            "video": safe_mean(split_rows, "video_component"),
+            "video": safe_mean(split_rows, "video_feature_component"),
             "action": action_norm,
         }
         score = weighted_score(components, weights, allow_missing=args.allow_missing_action)
@@ -354,7 +286,7 @@ def main() -> None:
             "mean_dino_distance": safe_mean(split_rows, "dino_distance"),
             "mean_dino_component": components["dino"],
             "mean_video_feature_distance": safe_mean(split_rows, "video_feature_distance"),
-            "mean_video_component": components["video"],
+            "mean_video_feature_component": components["video"],
             "mean_real_action_mae": mean_real_action_mae,
             "mean_generated_action_mae": mean_generated_action_mae,
             "action_error_ratio": ratio,
@@ -372,7 +304,11 @@ def main() -> None:
         split_summary = split_summaries[row["split"]]
         row["action_error_ratio"] = split_summary.get("action_error_ratio", math.nan)
         row["action_component"] = split_summary.get("action_component", math.nan)
-        components = {"dino": row["dino_component"], "video": row["video_component"], "action": row["action_component"]}
+        components = {
+            "dino": row["dino_component"],
+            "video": row["video_feature_component"],
+            "action": row["action_component"],
+        }
         row["weighted_score"] = weighted_score(components, weights, allow_missing=args.allow_missing_action)
 
     if args.details_csv:
@@ -388,7 +324,7 @@ def main() -> None:
         "mean_dino_distance": all_summary["mean_dino_distance"],
         "mean_dino_component": all_summary["mean_dino_component"],
         "mean_video_feature_distance": all_summary["mean_video_feature_distance"],
-        "mean_video_component": all_summary["mean_video_component"],
+        "mean_video_feature_component": all_summary["mean_video_feature_component"],
         "mean_real_action_mae": all_summary["mean_real_action_mae"],
         "mean_generated_action_mae": all_summary["mean_generated_action_mae"],
         "mean_action_error_ratio": all_summary["action_error_ratio"],
@@ -398,9 +334,9 @@ def main() -> None:
         "weight_dino": args.weight_dino,
         "weight_video": args.weight_video,
         "weight_action": args.weight_action,
-        "dino_backend": dino_backend or "",
-        "video_backend": video_backend or "",
-        "action_backend": action_backend or "",
+        "dino_feature_component": dino_component_name,
+        "video_feature_component_name": video_component_name,
+        "action_feature_component": action_component_name,
         "distance": args.distance,
         "action_component_mode": args.action_component,
         "action_ratio_cap": args.action_ratio_cap,

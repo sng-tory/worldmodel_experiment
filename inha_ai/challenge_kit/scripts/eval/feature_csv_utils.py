@@ -10,18 +10,16 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from pytorch_fid.inception import InceptionV3
 from torchvision.models.video import R3D_18_Weights, r3d_18
 
 from ldwma.datasets.lerobot_so100 import preprocess_video
 from video_utils.image import preprocess_images
 
 
-FID_DIMS = 2048
-CSV_FIELDNAMES = ["sample_id", "feature_backend", "feature_json"]
-DINO_BACKEND = "DINO Component"
-VIDEO_BACKEND = "Video Feature"
-ACTION_BACKEND = "Action Component"
+CSV_FIELDNAMES = ["sample_id", "feature_component", "feature_json"]
+DINO_COMPONENT = "DINO Component"
+VIDEO_COMPONENT = "Video Feature Component"
+ACTION_COMPONENT = "Action Component"
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 KINETICS_MEAN = torch.tensor([0.43216, 0.394666, 0.37645]).view(1, 3, 1, 1, 1)
@@ -142,13 +140,6 @@ def build_inference_batch(
     }
 
 
-def load_fid_model(device: torch.device) -> torch.nn.Module:
-    block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[FID_DIMS]
-    model = InceptionV3([block_idx]).to(device)
-    model.eval()
-    return model
-
-
 def load_video_feature_model(device: torch.device, pretrained: bool) -> torch.nn.Module:
     weights = R3D_18_Weights.DEFAULT if pretrained else None
     model = r3d_18(weights=weights)
@@ -200,20 +191,15 @@ def _round_feature(feature: np.ndarray | torch.Tensor | list, precision: int | N
 
 def feature_row(
     sample_id: str,
-    backend: str,
+    component: str,
     feature: np.ndarray | torch.Tensor | list,
     precision: int | None = 6,
 ) -> dict:
     return {
         "sample_id": sample_id,
-        "feature_backend": backend,
+        "feature_component": component,
         "feature_json": json.dumps(_round_feature(feature, precision), separators=(",", ":")),
     }
-
-def _resize_frame_batch(frames: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
-    frames = frames.float() / 255.0
-    return F.interpolate(frames, size=size, mode="bilinear", align_corners=False)
-
 
 def _resize_pad_frame_batch(frames: torch.Tensor, size: int, pad_value: float = 0.0) -> torch.Tensor:
     frames = frames.float() / 255.0
@@ -264,18 +250,6 @@ def _normalize_image_model_output(output) -> torch.Tensor:
     elif output.ndim > 3:
         output = output.flatten(2).mean(dim=-1)
     return output
-
-
-def extract_fid_features(videos: torch.Tensor, model: torch.nn.Module, device: torch.device) -> torch.Tensor:
-    batch, time, height, width, channels = videos.shape
-    frames = videos.permute(0, 1, 4, 2, 3).reshape(batch * time, channels, height, width)
-    frames = _resize_frame_batch(frames, (299, 299)).to(device)
-    outputs = []
-    with torch.no_grad():
-        for start in range(0, frames.shape[0], 128):
-            features = model(frames[start : start + 128])[0]
-            outputs.append(features.squeeze(3).squeeze(2).cpu().float())
-    return torch.cat(outputs, dim=0).reshape(batch, time, -1)
 
 
 def extract_video_features(videos: torch.Tensor, model: torch.nn.Module, device: torch.device) -> torch.Tensor:
@@ -356,23 +330,15 @@ def write_feature_csv(
     pad: bool,
     feature_batch_size: int,
     precision: int | None,
-    use_fid: bool,
-    use_video_feature: bool,
-    use_dino: bool,
-    video_feature_pretrained: bool,
-    dino_model_name: str,
-    dino_pretrained: bool,
-    dino_image_size: int,
     action_extractor_ckpt: str | None,
     challenge_root: Path | None = None,
     action_stats_path: str | None = None,
 ) -> None:
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    fid_model = load_fid_model(device) if use_fid else None
-    video_feature_model = load_video_feature_model(device, video_feature_pretrained) if use_video_feature else None
-    dino_model = load_dino_model(device, dino_model_name, dino_pretrained) if use_dino else None
-    if dino_model is not None:
-        dino_image_size = resolve_dino_image_size(dino_model, dino_image_size)
+    video_feature_model = load_video_feature_model(device, pretrained=True)
+    dino_model_name = "vit_small_patch14_dinov2.lvd142m"
+    dino_model = load_dino_model(device, dino_model_name, pretrained=True)
+    dino_image_size = resolve_dino_image_size(dino_model, requested_size=0)
     action_model = load_action_extractor(action_extractor_ckpt, device)
     action_mean, action_std = load_action_stats(action_stats_path) if challenge_root is not None else (None, None)
 
@@ -383,25 +349,18 @@ def write_feature_csv(
             batch_ids = sample_ids[start : start + feature_batch_size]
             videos = load_video_batch(video_root, batch_ids, temporal_length, target_height, target_width, pad)
 
-            if fid_model is not None:
-                fid_features = extract_fid_features(videos, fid_model, device)
-                for sample_id, feature in zip(batch_ids, fid_features):
-                    writer.writerow(feature_row(sample_id, "fid_inception_v3_2048_frames", feature, precision))
+            video_features = extract_video_features(videos, video_feature_model, device)
+            for sample_id, feature in zip(batch_ids, video_features):
+                writer.writerow(feature_row(sample_id, VIDEO_COMPONENT, feature, precision))
 
-            if video_feature_model is not None:
-                video_features = extract_video_features(videos, video_feature_model, device)
-                for sample_id, feature in zip(batch_ids, video_features):
-                    writer.writerow(feature_row(sample_id, VIDEO_BACKEND, feature, precision))
-
-            if dino_model is not None:
-                dino_features = extract_dino_features(videos, dino_model, device, dino_image_size)
-                for sample_id, feature in zip(batch_ids, dino_features):
-                    writer.writerow(feature_row(sample_id, DINO_BACKEND, feature, precision))
+            dino_features = extract_dino_features(videos, dino_model, device, dino_image_size)
+            for sample_id, feature in zip(batch_ids, dino_features):
+                writer.writerow(feature_row(sample_id, DINO_COMPONENT, feature, precision))
 
             action_targets = load_action_target_batch(challenge_root, batch_ids, action_mean, action_std, device)
             action_features = extract_action_features(videos, action_model, device, action_targets)
             if action_features is not None:
                 for sample_id, feature in zip(batch_ids, action_features):
-                    writer.writerow(feature_row(sample_id, ACTION_BACKEND, feature, precision))
+                    writer.writerow(feature_row(sample_id, ACTION_COMPONENT, feature, precision))
 
             print(f"[feature csv] {source}: wrote {start + len(batch_ids)}/{len(sample_ids)} samples")

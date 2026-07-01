@@ -74,14 +74,15 @@ sample_000033
 점수는 낮을수록 좋습니다.
 
 ```text
-score = 0.4 * DINO_component + 0.3 * Video_Feature_component + 0.3 * Action_component
+score = 0.3 * DINO_component + 0.3 * Video_Feature_Component + 0.4 * Action_component
 ```
 
-CSV의 `feature_backend`는 아래 세 가지 평가 항목 이름을 사용합니다.
+제출/정답 feature CSV는 `sample_id`, `feature_component`, `feature_json` 컬럼을 사용합니다.
+`feature_component`는 아래 세 가지 평가 항목 이름을 사용합니다.
 
 ```text
 DINO Component
-Video Feature
+Video Feature Component
 Action Component
 ```
 
