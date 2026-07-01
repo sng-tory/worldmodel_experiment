@@ -4,7 +4,7 @@ group: inha_submission_eval_11M
 num_batches: 64
 
 model_config_file: configs/train/inha_action_diffusion_11M.yaml
-act_cond_unet_checkpoint: ../checkpoints/epoch=61-step=10000.ckpt
+act_cond_unet_checkpoint: ../checkpoints/epoch=88-step=14500.ckpt
 
 ddim_kwargs:
   ddim_steps: 50
