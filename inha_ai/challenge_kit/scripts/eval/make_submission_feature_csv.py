@@ -107,9 +107,9 @@ def main() -> None:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--skip-generation", action="store_true")
     parser.add_argument("--include-fid", action="store_true")
-    parser.add_argument("--no-fvd", action="store_true")
+    parser.add_argument("--skip-video-feature", action="store_true")
     parser.add_argument("--no-dino", action="store_true")
-    parser.add_argument("--no-fvd-pretrained", action="store_true")
+    parser.add_argument("--video-feature-random-init", action="store_true")
     parser.add_argument("--dino-model", default="vit_small_patch14_dinov2.lvd142m")
     parser.add_argument("--dino-image-size", type=int, default=0)
     parser.add_argument("--no-dino-pretrained", action="store_true")
@@ -136,9 +136,9 @@ def main() -> None:
         feature_batch_size=args.feature_batch_size,
         precision=args.feature_precision,
         use_fid=args.include_fid,
-        use_fvd=not args.no_fvd,
+        use_video_feature=not args.skip_video_feature,
         use_dino=not args.no_dino,
-        fvd_pretrained=not args.no_fvd_pretrained,
+        video_feature_pretrained=not args.video_feature_random_init,
         dino_model_name=args.dino_model,
         dino_pretrained=not args.no_dino_pretrained,
         dino_image_size=args.dino_image_size,

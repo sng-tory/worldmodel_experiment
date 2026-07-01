@@ -74,7 +74,15 @@ sample_000033
 점수는 낮을수록 좋습니다.
 
 ```text
-score = 0.4 * DINO_component + 0.3 * FVD_component + 0.3 * Action_component
+score = 0.4 * DINO_component + 0.3 * Video_Feature_component + 0.3 * Action_component
+```
+
+CSV의 `feature_backend`는 아래 세 가지 평가 항목 이름을 사용합니다.
+
+```text
+DINO Component
+Video Feature
+Action Component
 ```
 
 Action Error Ratio는 split별 평균 MAE 기준입니다.

@@ -19,6 +19,9 @@ from video_utils.image import preprocess_images
 
 FID_DIMS = 2048
 CSV_FIELDNAMES = ["sample_id", "feature_backend", "feature_json"]
+DINO_BACKEND = "DINO Component"
+VIDEO_BACKEND = "Video Feature"
+ACTION_BACKEND = "Action Component"
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 KINETICS_MEAN = torch.tensor([0.43216, 0.394666, 0.37645]).view(1, 3, 1, 1, 1)
@@ -146,7 +149,7 @@ def load_fid_model(device: torch.device) -> torch.nn.Module:
     return model
 
 
-def load_fvd_model(device: torch.device, pretrained: bool) -> torch.nn.Module:
+def load_video_feature_model(device: torch.device, pretrained: bool) -> torch.nn.Module:
     weights = R3D_18_Weights.DEFAULT if pretrained else None
     model = r3d_18(weights=weights)
     model.fc = torch.nn.Identity()
@@ -275,7 +278,7 @@ def extract_fid_features(videos: torch.Tensor, model: torch.nn.Module, device: t
     return torch.cat(outputs, dim=0).reshape(batch, time, -1)
 
 
-def extract_fvd_features(videos: torch.Tensor, model: torch.nn.Module, device: torch.device) -> torch.Tensor:
+def extract_video_features(videos: torch.Tensor, model: torch.nn.Module, device: torch.device) -> torch.Tensor:
     x = videos.permute(0, 4, 1, 2, 3).float() / 255.0
     x = F.interpolate(x, size=(videos.shape[1], 112, 112), mode="trilinear", align_corners=False)
     x = (x - KINETICS_MEAN.to(x.device)) / KINETICS_STD.to(x.device)
@@ -354,9 +357,9 @@ def write_feature_csv(
     feature_batch_size: int,
     precision: int | None,
     use_fid: bool,
-    use_fvd: bool,
+    use_video_feature: bool,
     use_dino: bool,
-    fvd_pretrained: bool,
+    video_feature_pretrained: bool,
     dino_model_name: str,
     dino_pretrained: bool,
     dino_image_size: int,
@@ -366,19 +369,12 @@ def write_feature_csv(
 ) -> None:
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     fid_model = load_fid_model(device) if use_fid else None
-    fvd_model = load_fvd_model(device, fvd_pretrained) if use_fvd else None
+    video_feature_model = load_video_feature_model(device, video_feature_pretrained) if use_video_feature else None
     dino_model = load_dino_model(device, dino_model_name, dino_pretrained) if use_dino else None
     if dino_model is not None:
         dino_image_size = resolve_dino_image_size(dino_model, dino_image_size)
     action_model = load_action_extractor(action_extractor_ckpt, device)
     action_mean, action_std = load_action_stats(action_stats_path) if challenge_root is not None else (None, None)
-
-    fvd_backend = "r3d18_kinetics400_frechet_video_feature" if fvd_pretrained else "r3d18_untrained_frechet_video_feature"
-    dino_backend = f"{dino_model_name}:{'pretrained' if dino_pretrained else 'untrained'}:letterbox{dino_image_size}"
-    if action_extractor_ckpt and challenge_root is not None:
-        action_backend = f"action_mae:{Path(action_extractor_ckpt).name}"
-    else:
-        action_backend = Path(action_extractor_ckpt).name if action_extractor_ckpt else "none"
 
     with output_csv.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
@@ -392,20 +388,20 @@ def write_feature_csv(
                 for sample_id, feature in zip(batch_ids, fid_features):
                     writer.writerow(feature_row(sample_id, "fid_inception_v3_2048_frames", feature, precision))
 
-            if fvd_model is not None:
-                fvd_features = extract_fvd_features(videos, fvd_model, device)
-                for sample_id, feature in zip(batch_ids, fvd_features):
-                    writer.writerow(feature_row(sample_id, fvd_backend, feature, precision))
+            if video_feature_model is not None:
+                video_features = extract_video_features(videos, video_feature_model, device)
+                for sample_id, feature in zip(batch_ids, video_features):
+                    writer.writerow(feature_row(sample_id, VIDEO_BACKEND, feature, precision))
 
             if dino_model is not None:
                 dino_features = extract_dino_features(videos, dino_model, device, dino_image_size)
                 for sample_id, feature in zip(batch_ids, dino_features):
-                    writer.writerow(feature_row(sample_id, dino_backend, feature, precision))
+                    writer.writerow(feature_row(sample_id, DINO_BACKEND, feature, precision))
 
             action_targets = load_action_target_batch(challenge_root, batch_ids, action_mean, action_std, device)
             action_features = extract_action_features(videos, action_model, device, action_targets)
             if action_features is not None:
                 for sample_id, feature in zip(batch_ids, action_features):
-                    writer.writerow(feature_row(sample_id, action_backend, feature, precision))
+                    writer.writerow(feature_row(sample_id, ACTION_BACKEND, feature, precision))
 
             print(f"[feature csv] {source}: wrote {start + len(batch_ids)}/{len(sample_ids)} samples")
