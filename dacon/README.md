@@ -49,12 +49,10 @@ private_score=...
 ## 운영진이 넣어야 하는 파일
 
 ```text
-private_csv/answer_features.csv
-private_csv/public_ids.txt
 submissions/<team_name>/submission_features.csv
 ```
 
-`answer_features.csv`는 사전에 생성해서 데이콘에 전달합니다. 이 패키지에는 정답 영상에서 CSV를 만드는 코드를 포함하지 않습니다.
+`answer_features.csv`는 사전에 생성해서 데이콘에 전달합니다.
 
 ## public/private 설정 방식
 
@@ -85,7 +83,3 @@ Action Error Ratio는 split별 평균 MAE 기준입니다.
 AER = mean(submission_action_mae) / mean(answer_action_mae)
 Action_component = clamp((AER - 1) / 4, 0, 1)
 ```
-
-## 제한/운영 안내
-
-추론 방식, GPU 수, 외부 데이터 사용 가능 여부, 시간 제한은 대회 공지 문서에서 별도로 고지해야 합니다.

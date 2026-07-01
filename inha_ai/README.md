@@ -36,7 +36,7 @@ poetry run bash scripts/train.sh \
 
 ## 제출용 feature CSV 생성
 
-생성까지 함께 수행할 때:
+모델을 이용해서 생성 영상만들고 csv까지 생성 수행:
 
 ```bash
 cd challenge_kit
@@ -44,15 +44,6 @@ poetry run python scripts/eval/make_submission_feature_csv.py \
   --output-csv ../outputs/submission_features.csv
 ```
 
-이미 `sample_000000.mp4` 형식의 예측 영상을 만든 경우:
-
-```bash
-cd challenge_kit
-poetry run python scripts/eval/make_submission_feature_csv.py \
-  --skip-generation \
-  --prediction-root ../outputs/predictions/videos \
-  --output-csv ../outputs/submission_features.csv
-```
 
 ## 제출 파일
 
