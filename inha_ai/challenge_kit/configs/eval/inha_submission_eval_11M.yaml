@@ -1,10 +1,10 @@
-﻿name: inha_submission_eval_11M
+name: inha_submission_eval_11M
 group: inha_submission_eval_11M
 
 num_batches: 64
 
 model_config_file: configs/train/inha_action_diffusion_11M.yaml
-act_cond_unet_checkpoint: ../checkpoints/baseline_diffusion.ckpt
+act_cond_unet_checkpoint: ../checkpoints/epoch=61-step=10000.ckpt
 
 ddim_kwargs:
   ddim_steps: 50
@@ -39,8 +39,8 @@ data:
     action_stats_path: ../data/train/so100_action_statistics.json
     normalize_actions: True
     eval_all_episodes: True
-    batch_size: 16
-    num_workers: 0
+    batch_size: 64
+    num_workers: 4
     pin_memory: True
     target_height: 320
     target_width: 512

@@ -18,6 +18,37 @@ from feature_csv_utils import (
 )
 
 
+def config_value(config, key: str, default):
+    value = OmegaConf.select(config, key)
+    return default if value is None else value
+
+
+def load_submission_defaults(config_path: str) -> dict:
+    config = OmegaConf.load(config_path)
+    batch_size = config_value(config, "data.params.batch_size", 4)
+    return {
+        "checkpoint": config_value(config, "act_cond_unet_checkpoint", "../checkpoints/baseline_diffusion.ckpt"),
+        "challenge_root": config_value(config, "data.params.root", "../data/eval"),
+        "prediction_root": "../outputs/predictions/videos",
+        "output_csv": "../outputs/submission_features.csv",
+        "action_stats_path": config_value(
+            config,
+            "data.params.action_stats_path",
+            "../data/train/so100_action_statistics.json",
+        ),
+        "action_extractor_ckpt": "../checkpoints/action_extractor.ckpt",
+        "batch_size": batch_size,
+        "feature_batch_size": batch_size,
+        "fps": 6,
+        "target_height": config_value(config, "data.params.target_height", 320),
+        "target_width": config_value(config, "data.params.target_width", 512),
+        "pad": config_value(config, "data.params.pad", True),
+        "temporal_length": config_value(config, "data.params.traj_len", 16),
+        "precision": 16,
+        "feature_precision": 6,
+    }
+
+
 def load_diffusion_model(config_path: str, checkpoint_path: str, device: torch.device):
     eval_config = OmegaConf.load(config_path)
     model_config = OmegaConf.load(eval_config.model_config_file).model
@@ -86,27 +117,34 @@ def generate_predictions(args, sample_ids: list[str], device: torch.device) -> N
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate predictions from challenge data and export submission feature CSV.")
-    parser.add_argument("--config", default="configs/eval/inha_submission_eval_11M.yaml")
-    parser.add_argument("--checkpoint", default="../checkpoints/baseline_diffusion.ckpt")
-    parser.add_argument("--challenge-root", default="../data/eval")
-    parser.add_argument("--prediction-root", default="../outputs/predictions/videos")
-    parser.add_argument("--output-csv", default="../outputs/submission_features.csv")
-    parser.add_argument("--action-stats-path", default="../data/train/so100_action_statistics.json")
-    parser.add_argument("--action-extractor-ckpt", default="../checkpoints/action_extractor.ckpt")
-    parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--feature-batch-size", type=int, default=4)
-    parser.add_argument("--fps", type=int, default=6)
-    parser.add_argument("--target-height", type=int, default=320)
-    parser.add_argument("--target-width", type=int, default=512)
-    parser.add_argument("--pad", action="store_true", default=True)
-    parser.add_argument("--temporal-length", type=int, default=16)
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument("--config", default="configs/eval/inha_submission_eval_11M.yaml")
+    config_args, _ = config_parser.parse_known_args()
+    defaults = load_submission_defaults(config_args.config)
+
+    parser = argparse.ArgumentParser(
+        description="Generate predictions from challenge data and export submission feature CSV.",
+        parents=[config_parser],
+    )
+    parser.add_argument("--checkpoint", default=defaults["checkpoint"])
+    parser.add_argument("--challenge-root", default=defaults["challenge_root"])
+    parser.add_argument("--prediction-root", default=defaults["prediction_root"])
+    parser.add_argument("--output-csv", default=defaults["output_csv"])
+    parser.add_argument("--action-stats-path", default=defaults["action_stats_path"])
+    parser.add_argument("--action-extractor-ckpt", default=defaults["action_extractor_ckpt"])
+    parser.add_argument("--batch-size", type=int, default=defaults["batch_size"])
+    parser.add_argument("--feature-batch-size", type=int, default=defaults["feature_batch_size"])
+    parser.add_argument("--fps", type=int, default=defaults["fps"])
+    parser.add_argument("--target-height", type=int, default=defaults["target_height"])
+    parser.add_argument("--target-width", type=int, default=defaults["target_width"])
+    parser.add_argument("--pad", action=argparse.BooleanOptionalAction, default=defaults["pad"])
+    parser.add_argument("--temporal-length", type=int, default=defaults["temporal_length"])
     parser.add_argument("--ddim-steps", type=int, default=None)
-    parser.add_argument("--precision", type=int, default=16)
+    parser.add_argument("--precision", type=int, default=defaults["precision"])
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--skip-generation", action="store_true")
-    parser.add_argument("--feature-precision", type=int, default=6)
+    parser.add_argument("--feature-precision", type=int, default=defaults["feature_precision"])
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
