@@ -13,6 +13,7 @@ from PIL import Image
 from pytorch_fid.inception import InceptionV3
 from torchvision.models.video import R3D_18_Weights, r3d_18
 
+from ldwma.datasets.action_stats import load_or_compute_challenge_action_statistics
 from ldwma.datasets.lerobot_so100 import preprocess_video
 from video_utils.image import preprocess_images
 
@@ -95,7 +96,13 @@ def save_video_tensor(video: torch.Tensor, path: Path, fps: int) -> None:
             writer.append_data(frame)
 
 
-def load_action_stats(path: str | None) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+def load_action_stats(
+    path: str | None,
+    challenge_root: Path | None = None,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    if challenge_root is not None:
+        data = load_or_compute_challenge_action_statistics(challenge_root, path)
+        return torch.tensor(data["mean"], dtype=torch.float32), torch.tensor(data["std"], dtype=torch.float32)
     if not path:
         return None, None
     with Path(path).open("r", encoding="utf-8") as f:
@@ -371,7 +378,11 @@ def write_feature_csv(
     if dino_model is not None:
         dino_image_size = resolve_dino_image_size(dino_model, dino_image_size)
     action_model = load_action_extractor(action_extractor_ckpt, device)
-    action_mean, action_std = load_action_stats(action_stats_path) if challenge_root is not None else (None, None)
+    action_mean, action_std = (
+        load_action_stats(action_stats_path, challenge_root)
+        if action_model is not None and challenge_root is not None
+        else (None, None)
+    )
 
     fvd_backend = "r3d18_kinetics400_frechet_video_feature" if fvd_pretrained else "r3d18_untrained_frechet_video_feature"
     dino_backend = f"{dino_model_name}:{'pretrained' if dino_pretrained else 'untrained'}:letterbox{dino_image_size}"

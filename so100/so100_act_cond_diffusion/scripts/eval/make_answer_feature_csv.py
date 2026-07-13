@@ -13,7 +13,11 @@ def main() -> None:
     parser.add_argument("--answer-video-root", default="/workspace/smolvla_eval_challenge_stride5/answers/videos")
     parser.add_argument("--challenge-root", default="/workspace/smolvla_eval_challenge_stride5/challenge")
     parser.add_argument("--output-csv", default="/workspace/smolvla_eval_challenge_stride5/answer_features.csv")
-    parser.add_argument("--action-stats-path", default="/workspace/so100_stride5/so100_action_statistics.json")
+    parser.add_argument(
+        "--action-stats-path",
+        default=None,
+        help="Evaluator action stats path. Defaults to <challenge-root>/so100_action_statistics.json.",
+    )
     parser.add_argument("--action-extractor-ckpt", default=None)
     parser.add_argument("--feature-batch-size", type=int, default=4)
     parser.add_argument("--target-height", type=int, default=320)

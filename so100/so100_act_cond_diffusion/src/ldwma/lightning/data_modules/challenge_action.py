@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import av
@@ -9,6 +8,7 @@ import torch
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 
+from ldwma.datasets.action_stats import load_or_compute_challenge_action_statistics
 from ldwma.datasets.lerobot_so100 import preprocess_video
 
 
@@ -49,10 +49,7 @@ class ChallengeActionDataset(Dataset):
         self.action_mean = None
         self.action_std = None
         if self.normalize_actions:
-            if not action_stats_path:
-                raise ValueError("normalize_actions=True requires action_stats_path.")
-            with Path(action_stats_path).open("r", encoding="utf-8") as f:
-                stats = json.load(f)
+            stats = load_or_compute_challenge_action_statistics(self.challenge_root, action_stats_path)
             self.action_mean = torch.tensor(stats["mean"], dtype=torch.float32)
             self.action_std = torch.tensor(stats["std"], dtype=torch.float32)
 

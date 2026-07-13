@@ -35,7 +35,7 @@ def generate_predictions(args, sample_ids: list[str], device: torch.device) -> N
     if args.ddim_steps is not None:
         ddim_kwargs["ddim_steps"] = args.ddim_steps
 
-    action_mean, action_std = load_action_stats(args.action_stats_path)
+    action_mean, action_std = load_action_stats(args.generation_action_stats_path)
     if action_mean is not None:
         action_mean = action_mean.to(device)
         action_std = action_std.to(device)
@@ -92,7 +92,21 @@ def main() -> None:
     parser.add_argument("--challenge-root", default="/workspace/smolvla_eval_challenge_stride5/challenge")
     parser.add_argument("--prediction-root", default="/workspace/smolvla_eval_predictions/videos")
     parser.add_argument("--output-csv", default="/workspace/smolvla_eval_predictions/submission_features.csv")
-    parser.add_argument("--action-stats-path", default="/workspace/so100_stride5/so100_action_statistics.json")
+    parser.add_argument(
+        "--action-stats-path",
+        default=None,
+        help="Deprecated alias for --generation-action-stats-path.",
+    )
+    parser.add_argument(
+        "--generation-action-stats-path",
+        default="/workspace/so100_stride5/so100_action_statistics.json",
+        help="Action stats used to normalize actions for the diffusion generator.",
+    )
+    parser.add_argument(
+        "--evaluator-action-stats-path",
+        default=None,
+        help="Action stats used by the action extractor metric. Defaults to <challenge-root>/so100_action_statistics.json.",
+    )
     parser.add_argument("--action-extractor-ckpt", default=None)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--feature-batch-size", type=int, default=4)
@@ -115,6 +129,8 @@ def main() -> None:
     parser.add_argument("--no-dino-pretrained", action="store_true")
     parser.add_argument("--feature-precision", type=int, default=6)
     args = parser.parse_args()
+    if args.action_stats_path is not None:
+        args.generation_action_stats_path = args.action_stats_path
 
     torch.manual_seed(args.seed)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -144,7 +160,7 @@ def main() -> None:
         dino_image_size=args.dino_image_size,
         action_extractor_ckpt=args.action_extractor_ckpt,
         challenge_root=Path(args.challenge_root),
-        action_stats_path=args.action_stats_path,
+        action_stats_path=args.evaluator_action_stats_path,
     )
     print(f"[feature csv] saved to {args.output_csv}")
 

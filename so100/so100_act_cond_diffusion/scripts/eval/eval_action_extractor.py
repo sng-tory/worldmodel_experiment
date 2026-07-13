@@ -1,7 +1,6 @@
 
 import argparse
 import csv
-import json
 from pathlib import Path
 
 import av
@@ -9,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from einops import rearrange
+from ldwma.datasets.action_stats import load_or_compute_challenge_action_statistics
 from ldwma.datasets.lerobot_so100 import preprocess_video
 from ldwma.models.action_extractor import load_so100_action_extractor_checkpoint
 from torch.utils.data import DataLoader, Dataset
@@ -45,8 +45,11 @@ class ChallengeActionDataset(Dataset):
         self.action_mean = None
         self.action_std = None
         if action_stats_path:
-            with Path(action_stats_path).open("r", encoding="utf-8") as f:
-                stats = json.load(f)
+            stats = load_or_compute_challenge_action_statistics(self.challenge_root, action_stats_path)
+            self.action_mean = torch.tensor(stats["mean"], dtype=torch.float32)
+            self.action_std = torch.tensor(stats["std"], dtype=torch.float32)
+        elif action_stats_path is None:
+            stats = load_or_compute_challenge_action_statistics(self.challenge_root)
             self.action_mean = torch.tensor(stats["mean"], dtype=torch.float32)
             self.action_std = torch.tensor(stats["std"], dtype=torch.float32)
 
@@ -140,7 +143,11 @@ def main() -> None:
     parser.add_argument("--answer-video-root", default="/workspace/smolvla_eval_challenge_stride5/answers/videos")
     parser.add_argument("--generated-video-root", default=None)
     parser.add_argument("--csv-path", default="/workspace/so100_action_extractor/eval_challenge.csv")
-    parser.add_argument("--action-stats-path", default="/workspace/so100_stride5/so100_action_statistics.json")
+    parser.add_argument(
+        "--action-stats-path",
+        default=None,
+        help="Evaluator action stats path. Defaults to <challenge-root>/so100_action_statistics.json.",
+    )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--target-height", type=int, default=320)

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
+from ldwma.datasets.action_stats import load_or_compute_challenge_action_statistics
+
 
 EPS = 1e-9
 
@@ -122,7 +124,13 @@ def normalize_distance(distance: float, mode: str) -> float:
     return distance
 
 
-def load_action_stats(path: str | None) -> tuple[np.ndarray | None, np.ndarray | None]:
+def load_action_stats(
+    path: str | None,
+    challenge_root: Path | None = None,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    if challenge_root is not None:
+        stats = load_or_compute_challenge_action_statistics(challenge_root, path)
+        return _as_array(stats["mean"]), _as_array(stats["std"])
     if not path:
         return None, None
     with Path(path).open("r", encoding="utf-8") as f:
@@ -295,8 +303,8 @@ def main() -> None:
         required=args.weight_action > 0 and not args.allow_missing_action,
     )
 
-    action_mean, action_std = load_action_stats(args.action_stats_path) if args.challenge_root else (None, None)
     challenge_root = Path(args.challenge_root) if args.challenge_root else None
+    action_mean, action_std = load_action_stats(args.action_stats_path, challenge_root)
     weights = {"dino": args.weight_dino, "fvd": args.weight_fvd, "action": args.weight_action}
 
     rows = []
