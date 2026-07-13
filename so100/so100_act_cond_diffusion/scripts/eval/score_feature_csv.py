@@ -264,7 +264,7 @@ def main() -> None:
     parser.add_argument("--submission-csv", required=True)
     parser.add_argument("--answer-csv", required=True)
     parser.add_argument("--challenge-root", default=None)
-    parser.add_argument("--action-stats-path", default=None)
+    parser.add_argument("--action-stats-path", default="/workspace/so100_stride5/so100_action_statistics.json")
     parser.add_argument("--details-csv", default=None)
     parser.add_argument("--summary-csv", default=None)
     parser.add_argument("--dino-backend", default=None)

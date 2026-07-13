@@ -145,8 +145,8 @@ def main() -> None:
     parser.add_argument("--csv-path", default="/workspace/so100_action_extractor/eval_challenge.csv")
     parser.add_argument(
         "--action-stats-path",
-        default=None,
-        help="Evaluator action stats path. Defaults to <challenge-root>/so100_action_statistics.json.",
+        default="/workspace/so100_stride5/so100_action_statistics.json",
+        help="Action stats used to normalize action targets.",
     )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--num-workers", type=int, default=2)

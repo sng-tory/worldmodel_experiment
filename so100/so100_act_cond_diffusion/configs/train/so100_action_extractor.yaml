@@ -7,7 +7,7 @@ data:
   params:
     challenge_root: /workspace/smolvla_eval_challenge_stride5/challenge
     answer_video_root: /workspace/smolvla_eval_challenge_stride5/answers/videos
-    action_stats_path: null
+    action_stats_path: /workspace/so100_stride5/so100_action_statistics.json
     normalize_actions: True
     batch_size: 16
     num_workers: 2

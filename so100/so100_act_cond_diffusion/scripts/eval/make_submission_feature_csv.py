@@ -104,8 +104,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--evaluator-action-stats-path",
-        default=None,
-        help="Action stats used by the action extractor metric. Defaults to <challenge-root>/so100_action_statistics.json.",
+        default="/workspace/so100_stride5/so100_action_statistics.json",
+        help="Action stats used by the action extractor metric.",
     )
     parser.add_argument("--action-extractor-ckpt", default=None)
     parser.add_argument("--batch-size", type=int, default=4)
